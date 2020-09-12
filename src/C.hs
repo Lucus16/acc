@@ -107,7 +107,7 @@ class Assembly a where
 
 instance Assembly FunctionDefinition where
   assembly (Fdef returnType name parameters body)
-    = ".globl _" <> name : "_" <> name <> ":" : assembly body
+    = ".globl " <> name : name <> ":" : assembly body
 
 instance Assembly Statement where
   assembly (Return (Term (Literal (Integer i))))

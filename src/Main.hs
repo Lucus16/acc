@@ -2,18 +2,33 @@
 
 module Main where
 
-import Data.Text (Text)
-import Text.Megaparsec (errorBundlePretty, parse)
 import C (assembly, fdef)
+import Data.Text (Text)
+import System.Environment (getArgs)
+import System.Exit (ExitCode, exitFailure, exitSuccess)
+import System.FilePath.Posix (dropExtension, replaceExtension)
+import System.Process (proc, CreateProcess(..), waitForProcess, withCreateProcess)
+import Text.Megaparsec (errorBundlePretty, parse)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
 
-program :: Text
-program = "int main() { return 2; }"
-
-parsed = parse fdef "program" program
+callProcess :: FilePath -> [String] -> IO ExitCode
+callProcess cmd args = do
+  let process = (proc cmd args) { delegate_ctlc = True }
+  withCreateProcess process (\_ _ _ handle -> waitForProcess handle)
 
 main :: IO ()
-main = case parse fdef "program" program of
-         Left errorBundle -> putStr $ errorBundlePretty errorBundle
-         Right ast        -> TextIO.putStr $ Text.unlines $ assembly ast
+main = do
+  args <- getArgs
+  let path = head args
+  program <- TextIO.readFile path
+  case parse fdef path program of
+    Left errorBundle -> do
+      putStr $ errorBundlePretty errorBundle
+      exitFailure
+    Right ast -> do
+      let asmPath = replaceExtension path "s"
+      let binPath = dropExtension path
+      TextIO.writeFile asmPath $ Text.unlines $ assembly ast
+      exitCode <- callProcess "gcc" [asmPath, "-o", binPath]
+      exitSuccess
