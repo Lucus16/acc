@@ -5,7 +5,7 @@ module Main where
 import C (assembly, fdef)
 import Data.Text (Text)
 import System.Environment (getArgs)
-import System.Exit (ExitCode, exitFailure, exitSuccess)
+import System.Exit (ExitCode(..), exitWith)
 import System.FilePath.Posix (dropExtension, replaceExtension)
 import System.Process (proc, CreateProcess(..), waitForProcess, withCreateProcess)
 import Text.Megaparsec (errorBundlePretty, parse)
@@ -25,10 +25,10 @@ main = do
   case parse fdef path program of
     Left errorBundle -> do
       putStr $ errorBundlePretty errorBundle
-      exitFailure
+      exitWith $ ExitFailure 1
     Right ast -> do
       let asmPath = replaceExtension path "s"
       let binPath = dropExtension path
       TextIO.writeFile asmPath $ Text.unlines $ assembly ast
       exitCode <- callProcess "gcc" [asmPath, "-o", binPath]
-      exitSuccess
+      exitWith exitCode
