@@ -2,6 +2,7 @@
 
 module C where
 
+import Control.Applicative ((<|>))
 import Data.Char (isAlpha, isDigit, isSpace)
 import Data.Functor (void)
 import Data.Text (Text)
@@ -34,6 +35,9 @@ data Statement
 
 data Expression
   = Term Term
+  | Negate Expression
+  | Invert Expression
+  | Not Expression
   deriving (Show)
 
 data Term
@@ -82,6 +86,9 @@ term = Literal <$> literal
 
 expression :: Parser Expression
 expression = Term <$> term
+  <|> Negate <$> (symbol "-" *> expression)
+  <|> Invert <$> (symbol "~" *> expression)
+  <|> Not <$> (symbol "!" *> expression)
 
 returnStatement :: Parser Statement
 returnStatement = fmap Return $ symbol "return" *> expression <* symbol ";"
@@ -96,8 +103,7 @@ type_ :: Parser Type
 type_ = symbol "int"
 
 parameters :: Parser Parameters
---parameters = between (symbol "(") (symbol ")") $ pure []
-parameters = symbol "(" *> pure [] <* symbol ")"
+parameters = between (symbol "(") (symbol ")") $ pure []
 
 fdef :: Parser FunctionDefinition
 fdef = Fdef <$> type_ <*> identifier <*> parameters <*> body
@@ -109,11 +115,19 @@ instance Assembly FunctionDefinition where
   assembly (Fdef returnType name parameters body)
     = ".globl " <> name : name <> ":" : assembly body
 
+instance Assembly Expression where
+  assembly (Term (Literal (Integer i)))
+    = [ "movq $" <> tshow i <> ", %rax" ]
+  assembly (Negate e) = assembly e <> [ "neg %rax" ]
+  assembly (Invert e) = assembly e <> [ "not %rax" ]
+  assembly (Not e) = assembly e
+    <> [ "cmpq $0, %rax"
+       , "movq $0, %rax"
+       , "sete %al"
+       ]
+
 instance Assembly Statement where
-  assembly (Return (Term (Literal (Integer i))))
-    = [ "movl $" <> tshow i <> ", %eax"
-      , "ret"
-      ]
+  assembly (Return e) = assembly e <> [ "ret" ]
 
 instance Assembly a => Assembly [a] where
   assembly = concatMap assembly
