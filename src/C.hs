@@ -14,6 +14,9 @@ import Text.Megaparsec (Parsec, ParsecT, Stream, Token, Tokens, between, many, s
 import qualified Text.Megaparsec.Char.Lexer as L (decimal, lexeme, symbol)
 import qualified Data.Text as Text
 
+import Util (tshow)
+import Assembler (Asm, asm, emit, newLabel)
+
 type Parser = Parsec Void Text
 
 type AssemblyLines = [Text]
@@ -73,9 +76,6 @@ data Term
 data Literal
   = Integer Integer
   deriving (Show)
-
-tshow :: Show a => a -> Text
-tshow = Text.pack . show
 
 identChar :: Char -> Bool
 identChar c = isAlpha c || isDigit c || c == '_'
@@ -189,58 +189,87 @@ fdef = Fdef <$> type_ <*> identifier <*> parameters <*> body
 class Assembly a where
   assembly :: a -> [Text]
 
-instance Assembly FunctionDefinition where
-  assembly (Fdef returnType name parameters body)
-    = ".globl " <> name : name <> ":" : assembly body
+instance Asm FunctionDefinition where
+  asm (Fdef returnType name parameters body) = do
+    emit $ ".globl " <> name
+    emit $ name <> ":"
+    asm body
 
-instance Assembly Expression where
-  assembly (Term (Literal (Integer i)))
-    = [ "movq $" <> tshow i <> ", %rax" ]
+instance Asm Expression where
+  asm (Term (Literal (Integer i))) = emit $ "movq $" <> tshow i <> ", %rax"
+  asm (Unary op e) = asm e >> asm op
+  asm (Binary And l r) = do
+    end <- newLabel
+    asm l
+    emit "cmpl $0, %rax"
+    emit $ "je " <> end
+    asm r
+    emit "cmpl $0, %rax"
+    emit "movl $0, %rax"
+    emit "setne %al"
+    emit $ end <> ":"
 
-  assembly (Unary op e) = assembly e <> assembly op
+  asm (Binary Or l r) = do
+    end <- newLabel
+    asm l
+    emit "cmpl $0, %rax"
+    emit $ "jne " <> end
+    asm r
+    emit "cmpl $0, %rax"
+    emit $ end <> ":"
+    emit "movl $0, %rax"
+    emit "setne %al"
 
-  assembly (Binary op l r)
-    = case (unaryAssembly "rax" l, unaryAssembly "rcx" r) of
-        (_, Just rasm) -> assembly l <> rasm <> assembly op
-        (Just lasm, _) -> assembly r <> [ "movq %rax, %rcx" ] <> lasm <> assembly op
-        (Nothing, Nothing) ->
-          assembly r <> [ "push %rax" ]
-            <> assembly l <> [ "pop %rcx" ]
-            <> assembly op
+  asm (Binary op l r) = do
+    case (unaryAsm "rax" l, unaryAsm "rcx" r) of
+      (_, Just rasm) -> asm l >> rasm >> asm op
+      (Just lasm, _) -> asm r >> emit "movq %rax, %rcx" >> lasm >> asm op
+      (Nothing, Nothing) -> do
+        asm r
+        emit "push %rax"
+        asm l
+        emit "pop %rcx"
+        asm op
     where
-      unaryAssembly reg (Binary _ _ _) = Nothing
-      unaryAssembly reg (Term (Literal (Integer i)))
-        = Just [ "movq $" <> tshow i <> ", %" <> reg ]
+      unaryAsm reg (Binary _ _ _) = Nothing
+      unaryAsm reg (Term (Literal (Integer i))) = Just $ do
+        emit $ "movq $" <> tshow i <> ", %" <> reg
 
-      unaryAssembly reg (Unary Neg e) = (<>["neg %" <> reg]) <$> unaryAssembly reg e
-      unaryAssembly reg (Unary Inv e) = (<>["not %" <> reg]) <$> unaryAssembly reg e
-      unaryAssembly reg (Unary Not e) = Nothing
+      unaryAsm reg (Unary Neg e) = do
+        a <- unaryAsm reg e
+        Just $ do
+          a
+          emit $ "neg %" <> reg
 
-instance Assembly Unary where
-  assembly Neg = [ "neg %rax" ]
-  assembly Inv = [ "not %rax" ]
-  assembly Not
-    = [ "cmpq $0, %rax"
-      , "movq $0, %rax"
-      , "sete %al"
-      ]
+      unaryAsm reg (Unary Inv e) = do
+        a <- unaryAsm reg e
+        Just $ do
+          a
+          emit $ "not %" <> reg
 
-compareAsm = [ "cmpq %rax, %rcx", "movq $0, %rax" ]
+      unaryAsm reg (Unary Not e) = Nothing
 
-instance Assembly Binary where
-  assembly Div = [ "cqo", "idivq %rcx" ]
-  assembly Mul = [ "imul %rcx" ]
-  assembly Add = [ "add %rcx, %rax" ]
-  assembly Sub = [ "sub %rcx, %rax" ]
-  assembly Eq  = compareAsm <> [ "sete %al" ]
-  assembly Neq = compareAsm <> [ "setne %al" ]
-  assembly Lt  = compareAsm <> [ "setl %al" ]
-  assembly Leq = compareAsm <> [ "setle %al" ]
-  assembly Gt  = compareAsm <> [ "setg %al" ]
-  assembly Geq = compareAsm <> [ "setge %al" ]
+instance Asm Unary where
+  asm Neg = emit "neg %rax"
+  asm Inv = emit "not %rax"
+  asm Not = do
+    emit "cmpq $0, %rax"
+    emit "movq $0, %rax"
+    emit "sete %al"
 
-instance Assembly Statement where
-  assembly (Return e) = assembly e <> [ "ret" ]
+compareAsm = emit "cmpq %rax, %rcx" >> emit "movq $0, %rax"
 
-instance Assembly a => Assembly [a] where
-  assembly = concatMap assembly
+instance Asm Binary where
+  asm Div = emit "cqo" >> emit "idivq %rcx"
+  asm Mul = emit "imul %rcx"
+  asm Add = emit "add %rcx, %rax"
+  asm Sub = emit "sub %rcx, %rax"
+  asm Eq  = compareAsm >> emit "sete %al"
+  asm Neq = compareAsm >> emit "setne %al"
+  asm Lt  = compareAsm >> emit "setl %al"
+  asm Leq = compareAsm >> emit "setle %al"
+  asm Gt  = compareAsm >> emit "setg %al"
+  asm Geq = compareAsm >> emit "setge %al"
+
+instance Asm Statement where
+  asm (Return e) = asm e >> emit "ret"

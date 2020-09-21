@@ -2,7 +2,6 @@
 
 module Main where
 
-import C (assembly, fdef)
 import Data.Text (Text)
 import System.Environment (getArgs)
 import System.Exit (ExitCode(..), exitWith)
@@ -11,6 +10,9 @@ import System.Process (proc, CreateProcess(..), waitForProcess, withCreateProces
 import Text.Megaparsec (errorBundlePretty, parse)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
+
+import Assembler (compile)
+import C (fdef)
 
 callProcess :: FilePath -> [String] -> IO ExitCode
 callProcess cmd args = do
@@ -29,6 +31,6 @@ main = do
     Right ast -> do
       let asmPath = replaceExtension path "s"
       let binPath = dropExtension path
-      TextIO.writeFile asmPath $ Text.unlines $ assembly ast
+      TextIO.writeFile asmPath $ compile ast
       exitCode <- callProcess "gcc" [asmPath, "-o", binPath]
       exitWith exitCode
