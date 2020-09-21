@@ -4,7 +4,7 @@ module C where
 
 import Prelude hiding (product, sum)
 
-import Control.Applicative ((<|>))
+import Control.Applicative ((<|>), empty)
 import Data.Char (isAlpha, isDigit, isSpace)
 import Data.Function ((&))
 import Data.Functor (void)
@@ -47,6 +47,17 @@ data Binary
   | Sub
   | Mul
   | Div
+  | Mod
+  | Eq
+  | Neq
+  | Lt
+  | Leq
+  | Gt
+  | Geq
+  | And
+  | Or
+  | Shl
+  | Shr
   deriving (Show)
 
 data Expression
@@ -107,27 +118,48 @@ binaryText Add = "+"
 binaryText Sub = "-"
 binaryText Mul = "*"
 binaryText Div = "/"
+binaryText Mod = "%"
+binaryText Eq  = "=="
+binaryText Neq = "!="
+binaryText Lt  = "<"
+binaryText Leq = "<="
+binaryText Gt  = ">"
+binaryText Geq = ">="
+binaryText And = "&&"
+binaryText Or  = "||"
+binaryText Shl = "<<"
+binaryText Shr = ">>"
 
-trailingBinary :: Binary -> Parser Expression -> Parser (Expression -> Expression)
-trailingBinary op sub = symbol (binaryText op) *> fmap (flip $ Binary op) sub
+trailingBinary :: Parser Expression -> Binary -> Parser (Expression -> Expression)
+trailingBinary sub op = symbol (binaryText op) *> fmap (flip $ Binary op) sub
 
-binarySequence :: Parser Expression -> Parser (Expression -> Expression) -> Parser Expression
-binarySequence first rest = foldl (&) <$> first <*> many rest
+binarySequence :: Parser Expression -> [Binary] -> Parser Expression
+binarySequence sub ops = foldl (&) <$> sub <*> many rest
+  where rest = foldr (<|>) empty $ map (trailingBinary sub) ops
 
-sum :: Parser Expression
-sum = binarySequence product (addition <|> subtraction)
-  where
-    addition    = trailingBinary Add product
-    subtraction = trailingBinary Sub product
+multiplicative :: Parser Expression
+multiplicative = binarySequence unary [Mul, Div, Mod]
 
-product :: Parser Expression
-product = binarySequence unary (multiplication <|> division)
-  where
-    multiplication = trailingBinary Mul unary
-    division       = trailingBinary Div unary
+additive :: Parser Expression
+additive = binarySequence multiplicative [Add, Sub]
+
+shift :: Parser Expression
+shift = binarySequence additive [Shl, Shr]
+
+relational :: Parser Expression
+relational = binarySequence shift [Lt, Leq, Gt, Geq]
+
+equality :: Parser Expression
+equality = binarySequence relational [Eq, Neq]
+
+logicalAndExpression :: Parser Expression
+logicalAndExpression = binarySequence equality [And]
+
+logicalOrExpression :: Parser Expression
+logicalOrExpression = binarySequence logicalAndExpression [Or]
 
 expression :: Parser Expression
-expression = sum
+expression = logicalOrExpression
 
 unary :: Parser Expression
 unary = Term <$> term
@@ -175,14 +207,14 @@ instance Assembly Expression where
           assembly r <> [ "push %rax" ]
             <> assembly l <> [ "pop %rcx" ]
             <> assembly op
-  where
-    unaryAssembly reg (Binary _ _ _) = Nothing
-    unaryAssembly reg (Term (Literal (Integer i)))
-      = Just [ "movq $" <> tshow i <> ", %" <> reg ]
+    where
+      unaryAssembly reg (Binary _ _ _) = Nothing
+      unaryAssembly reg (Term (Literal (Integer i)))
+        = Just [ "movq $" <> tshow i <> ", %" <> reg ]
 
-    unaryAssembly reg (Unary Neg e) = (<>["neg %" <> reg]) <$> unaryAssembly reg e
-    unaryAssembly reg (Unary Inv e) = (<>["not %" <> reg]) <$> unaryAssembly reg e
-    unaryAssembly reg (Unary Not e) = Nothing
+      unaryAssembly reg (Unary Neg e) = (<>["neg %" <> reg]) <$> unaryAssembly reg e
+      unaryAssembly reg (Unary Inv e) = (<>["not %" <> reg]) <$> unaryAssembly reg e
+      unaryAssembly reg (Unary Not e) = Nothing
 
 instance Assembly Unary where
   assembly Neg = [ "neg %rax" ]
@@ -193,11 +225,19 @@ instance Assembly Unary where
       , "sete %al"
       ]
 
+compareAsm = [ "cmpq %rax, %rcx", "movq $0, %rax" ]
+
 instance Assembly Binary where
   assembly Div = [ "cqo", "idivq %rcx" ]
   assembly Mul = [ "imul %rcx" ]
   assembly Add = [ "add %rcx, %rax" ]
   assembly Sub = [ "sub %rcx, %rax" ]
+  assembly Eq  = compareAsm <> [ "sete %al" ]
+  assembly Neq = compareAsm <> [ "setne %al" ]
+  assembly Lt  = compareAsm <> [ "setl %al" ]
+  assembly Leq = compareAsm <> [ "setle %al" ]
+  assembly Gt  = compareAsm <> [ "setg %al" ]
+  assembly Geq = compareAsm <> [ "setge %al" ]
 
 instance Assembly Statement where
   assembly (Return e) = assembly e <> [ "ret" ]
