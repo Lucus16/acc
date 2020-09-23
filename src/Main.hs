@@ -12,7 +12,7 @@ import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
 
 import Assembler (compile)
-import C (fdef)
+import C (file)
 
 callProcess :: FilePath -> [String] -> IO ExitCode
 callProcess cmd args = do
@@ -24,7 +24,7 @@ main = do
   args <- getArgs
   let path = head args
   program <- TextIO.readFile path
-  case parse fdef path program of
+  case parse file path program of
     Left errorBundle -> do
       putStr $ errorBundlePretty errorBundle
       exitWith $ ExitFailure 1

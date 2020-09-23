@@ -4,18 +4,21 @@ module C where
 
 import Prelude hiding (product, sum)
 
-import Control.Applicative ((<|>), empty)
+import Control.Applicative (empty, (<|>))
 import Data.Char (isAlpha, isDigit, isSpace)
+import Data.Foldable (asum)
 import Data.Function ((&))
 import Data.Functor (void)
 import Data.Text (Text)
-import Data.Void (Void)
-import Text.Megaparsec (Parsec, ParsecT, Stream, Token, Tokens, between, many, satisfy, takeWhileP, takeWhile1P)
-import qualified Text.Megaparsec.Char.Lexer as L (decimal, lexeme, symbol)
 import qualified Data.Text as Text
+import Data.Void (Void)
+import Text.Megaparsec
+  (Parsec, ParsecT, Stream, Token, Tokens, between, chunk, many, notFollowedBy,
+  satisfy, takeWhile1P, takeWhileP)
+import qualified Text.Megaparsec.Char.Lexer as L (decimal, lexeme, symbol)
 
-import Util (tshow)
 import Assembler (Asm, asm, emit, newLabel)
+import Util (tshow)
 
 type Parser = Parsec Void Text
 
@@ -31,9 +34,11 @@ type Parameter = ()
 
 type Parameters = [Parameter]
 
-data FunctionDefinition
+data TopLevel
   = Fdef Type Identifier Parameters Body
   deriving (Show)
+
+type File = [TopLevel]
 
 data Statement
   = Return Expression
@@ -89,9 +94,6 @@ manyP = takeWhileP Nothing
 someP :: (Stream s, Ord e) => (Token s -> Bool) -> ParsecT e s m (Tokens s)
 someP = takeWhile1P Nothing
 
-identifier :: Parser Identifier
-identifier = Text.cons <$> satisfy identFirstChar <*> manyP identChar
-
 space :: Parser ()
 space = void $ manyP isSpace
 
@@ -100,6 +102,12 @@ lexeme = L.lexeme space
 
 symbol :: Text -> Parser Text
 symbol = L.symbol space
+
+keyword :: Text -> Parser Text
+keyword k = chunk k <* notFollowedBy (satisfy identChar) <* space
+
+identifier :: Parser Identifier
+identifier = lexeme $ Text.cons <$> satisfy identFirstChar <*> manyP identChar
 
 integer :: Parser Literal
 integer = Integer <$> lexeme L.decimal
@@ -135,7 +143,7 @@ trailingBinary sub op = symbol (binaryText op) *> fmap (flip $ Binary op) sub
 
 binarySequence :: Parser Expression -> [Binary] -> Parser Expression
 binarySequence sub ops = foldl (&) <$> sub <*> many rest
-  where rest = foldr (<|>) empty $ map (trailingBinary sub) ops
+  where rest = asum $ map (trailingBinary sub) ops
 
 multiplicative :: Parser Expression
 multiplicative = binarySequence unary [Mul, Div, Mod]
@@ -147,7 +155,7 @@ shift :: Parser Expression
 shift = binarySequence additive [Shl, Shr]
 
 relational :: Parser Expression
-relational = binarySequence shift [Lt, Leq, Gt, Geq]
+relational = binarySequence shift [Leq, Lt, Geq, Gt]
 
 equality :: Parser Expression
 equality = binarySequence relational [Eq, Neq]
@@ -169,7 +177,7 @@ unary = Term <$> term
   <|> parenthesized expression
 
 returnStatement :: Parser Statement
-returnStatement = fmap Return $ symbol "return" *> expression <* symbol ";"
+returnStatement = fmap Return $ keyword "return" *> expression <* symbol ";"
 
 statement :: Parser Statement
 statement = returnStatement
@@ -178,18 +186,21 @@ body :: Parser Body
 body = between (symbol "{") (symbol "}") $ many statement
 
 type_ :: Parser Type
-type_ = symbol "int"
+type_ = keyword "int"
 
 parameters :: Parser Parameters
 parameters = parenthesized $ pure []
 
-fdef :: Parser FunctionDefinition
-fdef = Fdef <$> type_ <*> identifier <*> parameters <*> body
+topLevel :: Parser TopLevel
+topLevel = Fdef <$> type_ <*> identifier <*> parameters <*> body
+
+file :: Parser [TopLevel]
+file = space *> many topLevel
 
 class Assembly a where
   assembly :: a -> [Text]
 
-instance Asm FunctionDefinition where
+instance Asm TopLevel where
   asm (Fdef returnType name parameters body) = do
     emit $ ".globl " <> name
     emit $ name <> ":"
@@ -201,23 +212,23 @@ instance Asm Expression where
   asm (Binary And l r) = do
     end <- newLabel
     asm l
-    emit "cmpl $0, %rax"
+    emit "cmpq $0, %rax"
     emit $ "je " <> end
     asm r
-    emit "cmpl $0, %rax"
-    emit "movl $0, %rax"
+    emit "cmpq $0, %rax"
+    emit "movq $0, %rax"
     emit "setne %al"
     emit $ end <> ":"
 
   asm (Binary Or l r) = do
     end <- newLabel
     asm l
-    emit "cmpl $0, %rax"
+    emit "cmpq $0, %rax"
     emit $ "jne " <> end
     asm r
-    emit "cmpl $0, %rax"
+    emit "cmpq $0, %rax"
     emit $ end <> ":"
-    emit "movl $0, %rax"
+    emit "movq $0, %rax"
     emit "setne %al"
 
   asm (Binary op l r) = do
@@ -257,7 +268,7 @@ instance Asm Unary where
     emit "movq $0, %rax"
     emit "sete %al"
 
-compareAsm = emit "cmpq %rax, %rcx" >> emit "movq $0, %rax"
+compareAsm = emit "cmpq %rcx, %rax" >> emit "movq $0, %rax"
 
 instance Asm Binary where
   asm Div = emit "cqo" >> emit "idivq %rcx"
