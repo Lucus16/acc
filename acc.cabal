@@ -8,6 +8,7 @@ build-type:              Simple
 
 executable acc
   other-modules:
+    AST
     Assembler
     C
     Util

@@ -4,7 +4,7 @@ module C where
 
 import Prelude hiding (product, sum)
 
-import Control.Applicative (empty, (<|>))
+import Control.Applicative (empty, optional, (<|>))
 import Data.Char (isAlpha, isDigit, isSpace)
 import Data.Foldable (asum)
 import Data.Function ((&))
@@ -14,73 +14,14 @@ import qualified Data.Text as Text
 import Data.Void (Void)
 import Text.Megaparsec
   (Parsec, ParsecT, Stream, Token, Tokens, between, chunk, many, notFollowedBy,
-  satisfy, takeWhile1P, takeWhileP)
+  satisfy, takeWhile1P, takeWhileP, try)
 import qualified Text.Megaparsec.Char.Lexer as L (decimal, lexeme, symbol)
 
 import Assembler (Asm, asm, emit, newLabel)
+import AST
 import Util (tshow)
 
 type Parser = Parsec Void Text
-
-type AssemblyLines = [Text]
-
-type Identifier = Text
-
-type Type = Identifier
-
-type Body = [Statement]
-
-type Parameter = ()
-
-type Parameters = [Parameter]
-
-data TopLevel
-  = Fdef Type Identifier Parameters Body
-  deriving (Show)
-
-type File = [TopLevel]
-
-data Statement
-  = Return Expression
-  deriving (Show)
-
-data Unary
-  = Inv
-  | Neg
-  | Not
-  deriving (Show)
-
-data Binary
-  = Add
-  | Sub
-  | Mul
-  | Div
-  | Mod
-  | Eq
-  | Neq
-  | Lt
-  | Leq
-  | Gt
-  | Geq
-  | And
-  | Or
-  | Shl
-  | Shr
-  deriving (Show)
-
-data Expression
-  = Term Term
-  | Unary Unary Expression
-  | Binary Binary Expression Expression
-  deriving (Show)
-
-data Term
-  = Literal Literal
-  deriving (Show)
-
-data Literal
-  = Integer Integer
-  deriving (Show)
 
 identChar :: Char -> Bool
 identChar c = isAlpha c || isDigit c || c == '_'
@@ -116,7 +57,7 @@ literal :: Parser Literal
 literal = integer
 
 term :: Parser Term
-term = Literal <$> literal
+term = Literal <$> literal <|> Variable <$> identifier
 
 parenthesized :: Parser a -> Parser a
 parenthesized = between (symbol "(") (symbol ")")
@@ -160,14 +101,17 @@ relational = binarySequence shift [Leq, Lt, Geq, Gt]
 equality :: Parser Expression
 equality = binarySequence relational [Eq, Neq]
 
-logicalAndExpression :: Parser Expression
-logicalAndExpression = binarySequence equality [And]
+logicalAnd :: Parser Expression
+logicalAnd = binarySequence equality [And]
 
-logicalOrExpression :: Parser Expression
-logicalOrExpression = binarySequence logicalAndExpression [Or]
+logicalOr :: Parser Expression
+logicalOr = binarySequence logicalAnd [Or]
+
+assignment :: Parser Expression
+assignment = try (Assignment <$> identifier <* symbol "=" <*> assignment) <|> logicalOr
 
 expression :: Parser Expression
-expression = logicalOrExpression
+expression = assignment
 
 unary :: Parser Expression
 unary = Term <$> term
@@ -179,8 +123,14 @@ unary = Term <$> term
 returnStatement :: Parser Statement
 returnStatement = fmap Return $ keyword "return" *> expression <* symbol ";"
 
+declaration :: Parser Statement
+declaration = Declaration <$> (keyword "int" *> identifier) <*> optional (symbol "=" *> expression) <* symbol ";"
+
+exprStatement :: Parser Statement
+exprStatement = Expression <$> expression <* symbol ";"
+
 statement :: Parser Statement
-statement = returnStatement
+statement = returnStatement <|> declaration <|> exprStatement
 
 body :: Parser Body
 body = between (symbol "{") (symbol "}") $ many statement
@@ -196,91 +146,3 @@ topLevel = Fdef <$> type_ <*> identifier <*> parameters <*> body
 
 file :: Parser [TopLevel]
 file = space *> many topLevel
-
-class Assembly a where
-  assembly :: a -> [Text]
-
-instance Asm TopLevel where
-  asm (Fdef returnType name parameters body) = do
-    emit $ ".globl " <> name
-    emit $ name <> ":"
-    asm body
-
-instance Asm Expression where
-  asm (Term (Literal (Integer i))) = emit $ "movq $" <> tshow i <> ", %rax"
-  asm (Unary op e) = asm e >> asm op
-  asm (Binary And l r) = do
-    end <- newLabel
-    asm l
-    emit "cmpq $0, %rax"
-    emit $ "je " <> end
-    asm r
-    emit "cmpq $0, %rax"
-    emit "movq $0, %rax"
-    emit "setne %al"
-    emit $ end <> ":"
-
-  asm (Binary Or l r) = do
-    end <- newLabel
-    asm l
-    emit "cmpq $0, %rax"
-    emit $ "jne " <> end
-    asm r
-    emit "cmpq $0, %rax"
-    emit $ end <> ":"
-    emit "movq $0, %rax"
-    emit "setne %al"
-
-  asm (Binary op l r) = do
-    case (unaryAsm "rax" l, unaryAsm "rcx" r) of
-      (_, Just rasm) -> asm l >> rasm >> asm op
-      (Just lasm, _) -> asm r >> emit "movq %rax, %rcx" >> lasm >> asm op
-      (Nothing, Nothing) -> do
-        asm r
-        emit "push %rax"
-        asm l
-        emit "pop %rcx"
-        asm op
-    where
-      unaryAsm reg (Binary _ _ _) = Nothing
-      unaryAsm reg (Term (Literal (Integer i))) = Just $ do
-        emit $ "movq $" <> tshow i <> ", %" <> reg
-
-      unaryAsm reg (Unary Neg e) = do
-        a <- unaryAsm reg e
-        Just $ do
-          a
-          emit $ "neg %" <> reg
-
-      unaryAsm reg (Unary Inv e) = do
-        a <- unaryAsm reg e
-        Just $ do
-          a
-          emit $ "not %" <> reg
-
-      unaryAsm reg (Unary Not e) = Nothing
-
-instance Asm Unary where
-  asm Neg = emit "neg %rax"
-  asm Inv = emit "not %rax"
-  asm Not = do
-    emit "cmpq $0, %rax"
-    emit "movq $0, %rax"
-    emit "sete %al"
-
-compareAsm = emit "cmpq %rcx, %rax" >> emit "movq $0, %rax"
-
-instance Asm Binary where
-  asm Div = emit "cqo" >> emit "idivq %rcx"
-  asm Mul = emit "imul %rcx"
-  asm Add = emit "add %rcx, %rax"
-  asm Sub = emit "sub %rcx, %rax"
-  asm Eq  = compareAsm >> emit "sete %al"
-  asm Neq = compareAsm >> emit "setne %al"
-  asm Lt  = compareAsm >> emit "setl %al"
-  asm Leq = compareAsm >> emit "setle %al"
-  asm Gt  = compareAsm >> emit "setg %al"
-  asm Geq = compareAsm >> emit "setge %al"
-
-instance Asm Statement where
-  asm (Return e) = asm e >> emit "ret"
