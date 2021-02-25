@@ -1,33 +1,56 @@
+{-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Assembler
-  ( Asm
-  , asm
-  , compile
-  , emit
-  , newLabel
+  ( compile
   ) where
 
-import Control.Monad.State (State, execState, modify, state)
+import Control.Monad.State (State, execState, gets, modify)
 import Data.Foldable (traverse_)
 import Data.Text (Text)
 import qualified Data.Text as Text
 
-import AST
-import Util (tshow)
+import qualified C
+import qualified Expr
+import qualified IR
+import Util (Error, tshow)
 
-type Emitter = State (Int, [Text])
+data EmitState = EmitState
+  { eLabelNum :: Int
+  , eLines :: [Text]
+  }
+
+type Emitter = State EmitState
+
+runEmitter :: Emitter () -> [Text]
+runEmitter emitter = reverse $ eLines $ execState emitter initialEmitState
+  where
+    initialEmitState = EmitState
+      { eLabelNum = 0
+      , eLines = []
+      }
 
 newLabel :: Emitter Text
-newLabel = state $ \(i, a) -> ("anon" <> tshow i, (i + 1, a))
+newLabel = do
+  labelNum <- gets eLabelNum
+  modify $ \s -> s { eLabelNum = labelNum + 1 }
+  pure $ "anon" <> tshow labelNum
 
 emit :: Text -> Emitter ()
-emit line = modify $ \(i, a) -> (i, line:a)
+emit line = modify $ \s -> s { eLines = line : eLines s }
 
-compile :: Asm a => a -> Text
-compile x =
-  let (_, lines) = execState (asm x) (0, [])
-   in Text.unlines (reverse lines)
+--saving :: Text -> Text -> Emitter a -> Emitter a
+--saving rin rout comp = do
+--  emit $ "push %" <> rin
+--  result <- comp
+--  emit $ "pop %" <> rout
+--  pure result
+
+compile :: C.File -> Either Error Text
+compile file = do
+  ir <- C.irFile file
+  pure $ Text.unlines $ runEmitter $ asm ir
 
 class Asm a where
   asm :: a -> Emitter ()
@@ -35,18 +58,26 @@ class Asm a where
 instance Asm a => Asm [a] where
   asm = traverse_ asm
 
-instance Asm TopLevel where
-  asm (Fdef returnType name parameters body) = do
+instance Asm IR.TopLevel where
+  asm (IR.Fdef _returnType name _parameters body) = do
     emit $ ".globl " <> name
     emit $ name <> ":"
-    emit "push %ebp"
-    emit "movq %esp, %ebp"
+    emit "pushq %rbp"
+    emit "movq %rsp, %rbp"
     asm body
 
-instance Asm Expression where
-  asm (Term (Literal (Integer i))) = emit $ "movq $" <> tshow i <> ", %rax"
-  asm (Unary op e) = asm e >> asm op
-  asm (Binary And l r) = do
+instance Asm IR.Block where
+  asm (IR.Block stmts) = asm stmts
+
+instance Asm IR.Expression where
+  asm (Expr.Assignment (IR.BPOffset var) value) = do
+    asm value
+    emit $ "movq %rax, -" <> tshow var <> "(%rbp)"
+
+  asm (Expr.Term (Expr.Variable var)) = asm var
+  asm (Expr.Term (C.Literal (C.Integer i))) = emit $ "movq $" <> tshow i <> ", %rax"
+  asm (C.Unary op e) = asm e >> asm op
+  asm (C.Binary C.And l r) = do
     end <- newLabel
     asm l
     emit "cmpq $0, %rax"
@@ -57,7 +88,7 @@ instance Asm Expression where
     emit "setne %al"
     emit $ end <> ":"
 
-  asm (Binary Or l r) = do
+  asm (C.Binary C.Or l r) = do
     end <- newLabel
     asm l
     emit "cmpq $0, %rax"
@@ -68,60 +99,67 @@ instance Asm Expression where
     emit "movq $0, %rax"
     emit "setne %al"
 
-  asm (Binary op l r) = do
+  asm (C.Binary op l r) = do
     case (unaryAsm "rax" l, unaryAsm "rcx" r) of
       (_, Just rasm) -> asm l >> rasm >> asm op
       (Just lasm, _) -> asm r >> emit "movq %rax, %rcx" >> lasm >> asm op
       (Nothing, Nothing) -> do
         asm r
-        emit "push %rax"
+        emit "pushq %rax"
         asm l
-        emit "pop %rcx"
+        emit "popq %rcx"
         asm op
+
     where
-      unaryAsm reg (Binary _ _ _) = Nothing
-      unaryAsm reg (Term (Literal (Integer i))) = Just $ do
+      unaryAsm :: Text -> Expr.Expression id -> Maybe (Emitter ())
+      unaryAsm reg (Expr.Term (C.Literal (C.Integer i))) = Just $ do
         emit $ "movq $" <> tshow i <> ", %" <> reg
 
-      unaryAsm reg (Unary Neg e) = do
+      unaryAsm reg (C.Unary C.Neg e) = do
         a <- unaryAsm reg e
         Just $ do
           a
           emit $ "neg %" <> reg
 
-      unaryAsm reg (Unary Inv e) = do
+      unaryAsm reg (C.Unary C.Inv e) = do
         a <- unaryAsm reg e
         Just $ do
           a
           emit $ "not %" <> reg
 
-      unaryAsm reg (Unary Not e) = Nothing
+      unaryAsm _reg _ = Nothing
 
-instance Asm Unary where
-  asm Neg = emit "neg %rax"
-  asm Inv = emit "not %rax"
-  asm Not = do
+instance Asm C.Unary where
+  asm C.Neg = emit "neg %rax"
+  asm C.Inv = emit "not %rax"
+  asm C.Not = do
     emit "cmpq $0, %rax"
     emit "movq $0, %rax"
     emit "sete %al"
 
+compareAsm :: Emitter ()
 compareAsm = emit "cmpq %rcx, %rax" >> emit "movq $0, %rax"
 
-instance Asm Binary where
-  asm Div = emit "cqo" >> emit "idivq %rcx"
-  asm Mul = emit "imul %rcx"
-  asm Add = emit "add %rcx, %rax"
-  asm Sub = emit "sub %rcx, %rax"
-  asm Eq  = compareAsm >> emit "sete %al"
-  asm Neq = compareAsm >> emit "setne %al"
-  asm Lt  = compareAsm >> emit "setl %al"
-  asm Leq = compareAsm >> emit "setle %al"
-  asm Gt  = compareAsm >> emit "setg %al"
-  asm Geq = compareAsm >> emit "setge %al"
+instance Asm C.Binary where
+  asm C.Div = emit "cqo" >> emit "idivq %rcx"
+  asm C.Mul = emit "imul %rcx"
+  asm C.Add = emit "add %rcx, %rax"
+  asm C.Sub = emit "sub %rcx, %rax"
+  asm C.Eq  = compareAsm >> emit "sete %al"
+  asm C.Neq = compareAsm >> emit "setne %al"
+  asm C.Lt  = compareAsm >> emit "setl %al"
+  asm C.Leq = compareAsm >> emit "setle %al"
+  asm C.Gt  = compareAsm >> emit "setg %al"
+  asm C.Geq = compareAsm >> emit "setge %al"
+  asm op = error $ "operator not yet implemented: " <> show op
 
-instance Asm Statement where
-  asm (Return e) = do
+instance Asm IR.BPOffset where
+  asm (IR.BPOffset i) = emit $ "movq -" <> tshow i <> "(%rbp), %rax"
+
+instance Asm IR.Statement where
+  asm (IR.Expression e) = asm e
+  asm (IR.Return e) = do
     asm e
-    emit "movq %ebp, %esp"
-    emit "pop %ebp"
+    emit "movq %rbp, %rsp"
+    emit "popq %rbp"
     emit "ret"
