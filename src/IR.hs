@@ -45,6 +45,8 @@ type Expression = Expr.Expression BPOffset
 
 type Scope = Map Text Int
 
+type Block = [Statement]
+
 data Reg
   = Rax
   | Rbx
@@ -56,10 +58,7 @@ data Reg
 data Statement
   = Expression Expression
   | Return Expression
-  deriving (Show)
-
-data Block
-  = Block [Statement]
+  | If Expression Block Block
   deriving (Show)
 
 data TopLevel

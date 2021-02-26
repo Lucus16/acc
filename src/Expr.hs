@@ -40,6 +40,7 @@ data Expression id
   | Unary Unary (Expression id)
   | Binary Binary (Expression id) (Expression id)
   | Assignment id (Expression id)
+  | Ternary (Expression id) (Expression id) (Expression id)
   deriving (Foldable, Functor, Show, Traversable)
 
 data Term id

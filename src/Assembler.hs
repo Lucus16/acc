@@ -66,9 +66,6 @@ instance Asm IR.TopLevel where
     emit "movq %rsp, %rbp"
     asm body
 
-instance Asm IR.Block where
-  asm (IR.Block stmts) = asm stmts
-
 instance Asm IR.Expression where
   asm (Expr.Assignment (IR.BPOffset var) value) = do
     asm value
@@ -98,6 +95,18 @@ instance Asm IR.Expression where
     emit $ end <> ":"
     emit "movq $0, %rax"
     emit "setne %al"
+
+  asm (C.Ternary cond t f) = do
+    fLabel <- newLabel
+    end <- newLabel
+    asm cond
+    emit "cmpq $0, %rax"
+    emit $ "je " <> fLabel
+    asm t
+    emit $ "jmp " <> end
+    emit $ fLabel <> ":"
+    asm f
+    emit $ end <> ":"
 
   asm (C.Binary op l r) = do
     case (unaryAsm "rax" l, unaryAsm "rcx" r) of
@@ -159,6 +168,26 @@ instance Asm IR.BPOffset where
   asm (IR.BPOffset i) = emit $ "movq -" <> tshow i <> "(%rbp), %rax"
 
 instance Asm IR.Statement where
+  asm (IR.If cond tBlock []) = do
+    end <- newLabel
+    asm cond
+    emit "cmpq $0, %rax"
+    emit $ "je " <> end
+    asm tBlock
+    emit $ end <> ":"
+
+  asm (IR.If cond tBlock fBlock) = do
+    fLabel <- newLabel
+    end <- newLabel
+    asm cond
+    emit "cmpq $0, %rax"
+    emit $ "je " <> fLabel
+    asm tBlock
+    emit $ "jmp " <> end
+    emit $ fLabel <> ":"
+    asm fBlock
+    emit $ end <> ":"
+
   asm (IR.Expression e) = asm e
   asm (IR.Return e) = do
     asm e

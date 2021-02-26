@@ -107,8 +107,19 @@ logicalAnd = binarySequence equality [And]
 logicalOr :: Parser Expression
 logicalOr = binarySequence logicalAnd [Or]
 
+conditional :: Parser Expression
+conditional = foldr ($) <$> logicalOr <*> many rest
+  where
+    rest :: Parser (Expression -> Expression)
+    rest = do
+      _ <- symbol "?"
+      t <- expression
+      _ <- symbol ":"
+      f <- conditional
+      pure $ \c -> Ternary c t f
+
 assignment :: Parser Expression
-assignment = try (Assignment <$> identifier <* symbol "=" <*> assignment) <|> logicalOr
+assignment = try (Assignment <$> identifier <* symbol "=" <*> assignment) <|> conditional
 
 expression :: Parser Expression
 expression = binarySequence assignment [Com]
@@ -132,8 +143,8 @@ exprStatement = Expression <$> expression <* symbol ";"
 statement :: Parser Statement
 statement = returnStatement <|> declaration <|> exprStatement
 
-body :: Parser Body
-body = between (symbol "{") (symbol "}") $ many statement
+block :: Parser Block
+block = between (symbol "{") (symbol "}") $ many statement
 
 type_ :: Parser Type
 type_ = keyword "int"
@@ -142,7 +153,7 @@ parameters :: Parser Parameters
 parameters = parenthesized $ pure []
 
 topLevel :: Parser TopLevel
-topLevel = Fdef <$> type_ <*> identifier <*> parameters <*> body
+topLevel = Fdef <$> type_ <*> identifier <*> parameters <*> block
 
 file :: Parser [TopLevel]
 file = space *> many topLevel
