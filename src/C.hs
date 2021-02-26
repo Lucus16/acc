@@ -8,25 +8,25 @@ import Expr hiding (Expression, Term)
 import qualified Expr
 import qualified IR
 
-type Block = [Statement]
-
 type Expression = Expr.Expression Identifier
 type Term = Expr.Term Identifier
 
 data TopLevel
-  = Fdef Type Identifier Parameters Block
+  = Fdef Type Identifier Parameters Statement
   deriving (Show)
 
 type File = [TopLevel]
 
 data Statement
-  = Return Expression
+  = Block [Statement]
+  | Return Expression
   | Declaration Identifier (Maybe Expression)
   | Expression Expression
-  | If Expression Block Block
+  | If Expression Statement (Maybe Statement)
   deriving (Show)
 
 irStatement :: Statement -> IR.Builder [IR.Statement]
+irStatement (Block stmts) = IR.block $ concat <$> traverse irStatement stmts
 irStatement (Return e) = pure . IR.Return <$> traverse IR.lookup e
 irStatement (Expression e) = pure . IR.Expression <$> traverse IR.lookup e
 irStatement (Declaration name Nothing) = IR.declare name >> pure []
@@ -34,12 +34,11 @@ irStatement (Declaration name (Just value)) = do
   IR.declare name
   pure . IR.Expression <$> traverse IR.lookup (Expr.Assignment name value)
 
-irStatement (If condition true false) = fmap pure $
-  IR.If <$> traverse IR.lookup condition <*> irBlock true <*> irBlock false
-
-irBlock :: [C.Statement] -> IR.Builder IR.Block
-irBlock stmts = concat <$> traverse irStatement stmts
+irStatement (If condition true false) = fmap pure $ IR.If
+  <$> traverse IR.lookup condition
+  <*> irStatement true
+  <*> maybe (pure []) irStatement false
 
 irFile :: C.File -> Either Text IR.TopLevel
-irFile [Fdef returnType name params body] = IR.runBuilder $ IR.Fdef returnType name params <$> irBlock body
+irFile [Fdef returnType name params body] = IR.runBuilder $ IR.Fdef returnType name params <$> irStatement body
 irFile _ = error "multiple toplevels not supported"

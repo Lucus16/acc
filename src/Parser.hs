@@ -140,11 +140,21 @@ declaration = Declaration <$> (keyword "int" *> identifier) <*> optional (symbol
 exprStatement :: Parser Statement
 exprStatement = Expression <$> expression <* symbol ";"
 
-statement :: Parser Statement
-statement = returnStatement <|> declaration <|> exprStatement
+ifStatement :: Parser Statement
+ifStatement = do
+  c <- symbol "if" >> parenthesized expression
+  t <- branch
+  f <- optional (symbol "else" >> branch)
+  pure $ If c t f
 
-block :: Parser Block
-block = between (symbol "{") (symbol "}") $ many statement
+statement :: Parser Statement
+statement = block <|> ifStatement <|> returnStatement <|> declaration <|> exprStatement
+
+block :: Parser Statement
+block = fmap Block $ between (symbol "{") (symbol "}") $ many statement
+
+branch :: Parser Statement
+branch = block <|> ifStatement <|> returnStatement <|> exprStatement
 
 type_ :: Parser Type
 type_ = keyword "int"

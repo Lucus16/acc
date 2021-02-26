@@ -12,11 +12,20 @@ import qualified Data.Map.Strict as Map
 import qualified Expr
 import Util
 
+type Scope = Map Text IR.BPOffset
+
 data BuilderState = BuilderState
-  { irbScope :: Map Text IR.BPOffset
+  { irbScope :: Scope
   }
 
 type Builder a = StateT BuilderState (Either Text) a
+
+block :: Builder a -> Builder a
+block inner = do
+  scope <- gets irbScope
+  result <- inner
+  modify $ \s -> s { irbScope = scope }
+  pure result
 
 declare :: Text -> Builder ()
 declare name = do
@@ -38,14 +47,10 @@ runBuilder = flip evalStateT BuilderState { irbScope = Map.empty }
 -- | Offset from the base pointer for a local variable.
 newtype BPOffset = BPOffset Int deriving (Show)
 
+type Block = [Statement]
+type Expression = Expr.Expression BPOffset
 type Identifier = Text
 type Type = Identifier
-
-type Expression = Expr.Expression BPOffset
-
-type Scope = Map Text Int
-
-type Block = [Statement]
 
 data Reg
   = Rax
