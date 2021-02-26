@@ -131,6 +131,9 @@ unary = Expr.Term <$> term
   <|> Unary Not <$> (symbol "!" *> unary)
   <|> parenthesized expression
 
+nullStatement :: Parser Statement
+nullStatement = keyword ";" >> pure Inert
+
 returnStatement :: Parser Statement
 returnStatement = fmap Return $ keyword "return" *> expression <* symbol ";"
 
@@ -148,7 +151,7 @@ ifStatement = do
   pure $ If c t f
 
 statement :: Parser Statement
-statement = block <|> ifStatement <|> returnStatement <|> declaration <|> exprStatement
+statement = block <|> ifStatement <|> returnStatement <|> nullStatement <|> declaration <|> exprStatement
 
 block :: Parser Statement
 block = fmap Block $ between (symbol "{") (symbol "}") $ many statement
