@@ -1,10 +1,11 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module IR where
 
-import Control.Monad (when)
 import Control.Monad.Except (throwError)
-import Control.Monad.State (StateT, evalStateT, gets, modify)
+import Control.Monad.State (StateT, evalStateT, get, gets, modify, put)
 import Data.Map.Strict (Map)
 import Data.Text (Text)
 import qualified Data.Map.Strict as Map
@@ -12,44 +13,71 @@ import qualified Data.Map.Strict as Map
 import qualified Expr
 import Util
 
-type Scope = Map Text IR.BPOffset
+-- | Offset from the base pointer for a local variable.
+newtype BPOffset = BPOffset Int deriving (Eq, Num, Ord, Show)
+
+type Depth = Int
+type Scope = Map Text (Depth, BPOffset)
 
 data BuilderState = BuilderState
-  { irbScope :: Scope
+  { bScope :: Scope
+  , bDepth :: Int
+  , bNextOffset :: BPOffset
+  , bLargestOffset :: BPOffset
   }
 
 type Builder a = StateT BuilderState (Either Text) a
 
 block :: Builder a -> Builder a
 block inner = do
-  scope <- gets irbScope
+  before <- get
+  put before { bDepth = bDepth before + 1 }
   result <- inner
-  modify $ \s -> s { irbScope = scope }
+  innerLargestOffset <- gets bLargestOffset
+  put before { bLargestOffset = innerLargestOffset }
   pure result
 
 declare :: Text -> Builder ()
 declare name = do
-  scope <- gets irbScope
-  when (name `Map.member` scope) $ throwError $ "declared twice: " <> tshow name
-  let offset = BPOffset $ Map.size scope * 8
-  modify $ \s -> s { irbScope = Map.insert name offset scope }
+  BuilderState { bScope, bDepth, bNextOffset, bLargestOffset } <- get
+  case name `Map.lookup` bScope of
+    Just (depth, _offset) | depth == bDepth -> throwError $ "declared twice: " <> tshow name
+    _ -> pure ()
+
+  let bNextOffset' = bNextOffset + 8
+
+  modify $ \s -> s
+    { bScope = Map.insert name (bDepth, bNextOffset) bScope
+    , bNextOffset = bNextOffset'
+    , bLargestOffset = max bLargestOffset bNextOffset'
+    }
 
 lookup :: Text -> IR.Builder BPOffset
 lookup name = do
-  scope <- gets irbScope
+  scope <- gets bScope
   case name `Map.lookup` scope of
     Nothing -> throwError $ "not declared: " <> tshow name
-    Just offset -> pure offset
+    Just (_depth, offset) -> pure offset
 
-runBuilder :: IR.Builder a -> Either Text a
-runBuilder = flip evalStateT BuilderState { irbScope = Map.empty }
+buildFdef :: Type -> Identifier -> Expr.Parameters -> IR.Builder Block -> Either Text TopLevel
+buildFdef typ name params blockBuilder = evalStateT fdefBuilder initialBuilderState
+  where
+    initialBuilderState = BuilderState
+      { bScope = Map.empty
+      , bDepth = 0
+      , bNextOffset = BPOffset 0
+      , bLargestOffset = BPOffset 0
+      }
 
--- | Offset from the base pointer for a local variable.
-newtype BPOffset = BPOffset Int deriving (Show)
+    fdefBuilder = do
+      body <- blockBuilder
+      BPOffset locals <- gets bLargestOffset
+      pure $ Fdef typ name params locals body
 
 type Block = [Statement]
 type Expression = Expr.Expression BPOffset
 type Identifier = Text
+type Locals = Int
 type Type = Identifier
 
 data Reg
@@ -67,5 +95,5 @@ data Statement
   deriving (Show)
 
 data TopLevel
-  = Fdef Type Identifier Expr.Parameters Block
+  = Fdef Type Identifier Expr.Parameters Locals Block
   deriving (Show)

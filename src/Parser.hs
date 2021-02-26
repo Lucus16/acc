@@ -13,7 +13,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Void (Void)
 import Text.Megaparsec
-  (Parsec, ParsecT, Stream, Token, Tokens, between, chunk, many, notFollowedBy,
+  (Parsec, ParsecT, Stream, Token, Tokens, between, chunk, eof, many, notFollowedBy,
   satisfy, takeWhile1P, takeWhileP, try)
 import qualified Text.Megaparsec.Char.Lexer as L (decimal, lexeme, symbol)
 
@@ -166,4 +166,4 @@ topLevel :: Parser TopLevel
 topLevel = Fdef <$> type_ <*> identifier <*> parameters <*> block
 
 file :: Parser [TopLevel]
-file = space *> many topLevel
+file = space *> many topLevel <* eof

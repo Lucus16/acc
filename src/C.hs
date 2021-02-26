@@ -40,5 +40,5 @@ irStatement (If condition true false) = fmap pure $ IR.If
   <*> maybe (pure []) irStatement false
 
 irFile :: C.File -> Either Text IR.TopLevel
-irFile [Fdef returnType name params body] = IR.runBuilder $ IR.Fdef returnType name params <$> irStatement body
+irFile [Fdef returnType name params body] = IR.buildFdef returnType name params $ irStatement body
 irFile _ = error "multiple toplevels not supported"
