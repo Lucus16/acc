@@ -140,6 +140,7 @@ instance Asm C.Unary where
 compareAsm :: Emitter ()
 compareAsm = emit "cmpq %rcx, %rax" >> emit "movq $0, %rax"
 
+-- lhs in rax, rhs in rcx, out in rcx
 instance Asm C.Binary where
   asm C.Div = emit "cqo" >> emit "idivq %rcx"
   asm C.Mul = emit "imul %rcx"
@@ -151,6 +152,7 @@ instance Asm C.Binary where
   asm C.Leq = compareAsm >> emit "setle %al"
   asm C.Gt  = compareAsm >> emit "setg %al"
   asm C.Geq = compareAsm >> emit "setge %al"
+  asm C.Com = pure ()
   asm op = error $ "operator not yet implemented: " <> show op
 
 instance Asm IR.BPOffset where

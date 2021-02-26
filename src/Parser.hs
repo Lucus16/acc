@@ -77,6 +77,7 @@ binaryText And = "&&"
 binaryText Or  = "||"
 binaryText Shl = "<<"
 binaryText Shr = ">>"
+binaryText Com = ","
 
 trailingBinary :: Parser Expression -> Binary -> Parser (Expression -> Expression)
 trailingBinary sub op = symbol (binaryText op) *> fmap (flip $ Binary op) sub
@@ -110,7 +111,7 @@ assignment :: Parser Expression
 assignment = try (Assignment <$> identifier <* symbol "=" <*> assignment) <|> logicalOr
 
 expression :: Parser Expression
-expression = assignment
+expression = binarySequence assignment [Com]
 
 unary :: Parser Expression
 unary = Expr.Term <$> term

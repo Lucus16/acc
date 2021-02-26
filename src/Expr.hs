@@ -32,6 +32,7 @@ data Binary
   | Or
   | Shl
   | Shr
+  | Com
   deriving (Show)
 
 data Expression id
