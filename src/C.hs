@@ -3,6 +3,8 @@ module C
   , module Expr
   ) where
 
+import Prelude hiding (init)
+
 import Data.Text (Text)
 import Expr hiding (Expression, Term)
 import qualified Expr
@@ -19,29 +21,53 @@ type File = [TopLevel]
 
 data Statement
   = Block [Statement]
+  | Break
+  | Continue
   | Declaration Identifier (Maybe Expression)
+  | DoWhile Statement Expression
   | Expression Expression
+  | For Statement Expression Statement Statement
   | If Expression Statement (Maybe Statement)
   | Inert
   | Return Expression
+  | While Expression Statement
   deriving (Show)
 
 irStatement :: Statement -> IR.Builder [IR.Statement]
+irStatement (Expression e) = pure . IR.Expression <$> traverse IR.lookup e
 irStatement (Block stmts) = IR.block $ concat <$> traverse irStatement stmts
+
+irStatement Break = pure [IR.Break]
+irStatement Continue = pure [IR.Continue]
+irStatement Inert = pure []
+irStatement (Return e) = pure . IR.Return <$> traverse IR.lookup e
+
 irStatement (Declaration name Nothing) = IR.declare name >> pure []
 irStatement (Declaration name (Just value)) = do
   IR.declare name
   pure . IR.Expression <$> traverse IR.lookup (Expr.Assignment name value)
-
-irStatement (Expression e) = pure . IR.Expression <$> traverse IR.lookup e
 
 irStatement (If condition true false) = fmap pure $ IR.If
   <$> traverse IR.lookup condition
   <*> irStatement true
   <*> maybe (pure []) irStatement false
 
-irStatement Inert = pure []
-irStatement (Return e) = pure . IR.Return <$> traverse IR.lookup e
+irStatement (DoWhile body condition) = do
+  body' <- irStatement body
+  condition' <- traverse IR.lookup condition
+  pure [IR.DoWhile body' condition']
+
+irStatement (For init cond step body) = IR.block $ do
+  init' <- irStatement init
+  cond' <- traverse IR.lookup cond
+  step' <- irStatement step
+  body' <- irStatement body
+  pure $ init' <> [IR.While cond' (body' <> step')]
+
+irStatement (While condition body) = do
+  condition' <- traverse IR.lookup condition
+  body' <- irStatement body
+  pure [IR.While condition' body']
 
 irFile :: C.File -> Either Text IR.TopLevel
 irFile [Fdef returnType name params body] = IR.buildFdef returnType name params $ irStatement body

@@ -2,13 +2,14 @@
 
 module Parser where
 
-import Prelude hiding (product, sum)
+import Prelude hiding (init, product, sum)
 
 import Control.Applicative (optional, (<|>))
 import Data.Char (isAlpha, isDigit, isSpace)
 import Data.Foldable (asum)
 import Data.Function ((&))
 import Data.Functor (void)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Void (Void)
@@ -132,7 +133,13 @@ unary = Expr.Term <$> term
   <|> parenthesized expression
 
 nullStatement :: Parser Statement
-nullStatement = keyword ";" >> pure Inert
+nullStatement = symbol ";" >> pure Inert
+
+breakStatement :: Parser Statement
+breakStatement = keyword "break" >> symbol ";" >> pure Break
+
+continueStatement :: Parser Statement
+continueStatement = keyword "continue" >> symbol ";" >> pure Continue
 
 returnStatement :: Parser Statement
 returnStatement = fmap Return $ keyword "return" *> expression <* symbol ";"
@@ -145,19 +152,57 @@ exprStatement = Expression <$> expression <* symbol ";"
 
 ifStatement :: Parser Statement
 ifStatement = do
-  c <- symbol "if" >> parenthesized expression
+  c <- keyword "if" >> parenthesized expression
   t <- branch
-  f <- optional (symbol "else" >> branch)
+  f <- optional (keyword "else" >> branch)
   pure $ If c t f
 
+whileStatement :: Parser Statement
+whileStatement = While <$> (keyword "while" >> parenthesized expression) <*> statement
+
+doWhileStatement :: Parser Statement
+doWhileStatement = DoWhile
+  <$> (keyword "do" >> statement)
+  <*> (keyword "while" >> parenthesized expression)
+
+forStatement :: Parser Statement
+forStatement = do
+  _ <- keyword "for"
+  _ <- symbol "("
+  init <- nullStatement <|> declaration <|> exprStatement
+  cond <- fromMaybe (Expr.Term $ Literal $ Integer 1) <$> optional expression
+  _ <- symbol ";"
+  step <- maybe Inert Expression <$> optional expression
+  _ <- symbol ")"
+  For init cond step <$> statement
+
 statement :: Parser Statement
-statement = block <|> ifStatement <|> returnStatement <|> nullStatement <|> declaration <|> exprStatement
+statement = block
+  <|> breakStatement
+  <|> continueStatement
+  <|> doWhileStatement
+  <|> forStatement
+  <|> ifStatement
+  <|> returnStatement
+  <|> whileStatement
+  <|> nullStatement
+  <|> declaration
+  <|> exprStatement
+
+branch :: Parser Statement
+branch = block
+  <|> breakStatement
+  <|> continueStatement
+  <|> doWhileStatement
+  <|> forStatement
+  <|> ifStatement
+  <|> returnStatement
+  <|> whileStatement
+  <|> nullStatement
+  <|> exprStatement
 
 block :: Parser Statement
 block = fmap Block $ between (symbol "{") (symbol "}") $ many statement
-
-branch :: Parser Statement
-branch = block <|> ifStatement <|> returnStatement <|> exprStatement
 
 type_ :: Parser Type
 type_ = keyword "int"

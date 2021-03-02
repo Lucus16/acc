@@ -13,6 +13,26 @@ import qualified Data.Map.Strict as Map
 import qualified Expr
 import Util
 
+type Block = [Statement]
+type Expression = Expr.Expression BPOffset
+type Identifier = Text
+type Locals = Int
+type Type = Identifier
+
+data Statement
+  = Break
+  | Continue
+  | Expression Expression
+  | If Expression Block Block
+  | Return Expression
+  | While Expression Block
+  | DoWhile Block Expression
+  deriving (Show)
+
+data TopLevel
+  = Fdef Type Identifier Expr.Parameters Locals Block
+  deriving (Show)
+
 -- | Offset from the base pointer for a local variable.
 newtype BPOffset = BPOffset Int deriving (Eq, Num, Ord, Show)
 
@@ -26,7 +46,7 @@ data BuilderState = BuilderState
   , bLargestOffset :: BPOffset
   }
 
-type Builder a = StateT BuilderState (Either Text) a
+type Builder = StateT BuilderState (Either Text)
 
 block :: Builder a -> Builder a
 block inner = do
@@ -73,27 +93,3 @@ buildFdef typ name params blockBuilder = evalStateT fdefBuilder initialBuilderSt
       body <- blockBuilder
       BPOffset locals <- gets bLargestOffset
       pure $ Fdef typ name params locals body
-
-type Block = [Statement]
-type Expression = Expr.Expression BPOffset
-type Identifier = Text
-type Locals = Int
-type Type = Identifier
-
-data Reg
-  = Rax
-  | Rbx
-  | Rcx
-  | Rdx
-  | Rbp
-  | Rsp
-
-data Statement
-  = Expression Expression
-  | Return Expression
-  | If Expression Block Block
-  deriving (Show)
-
-data TopLevel
-  = Fdef Type Identifier Expr.Parameters Locals Block
-  deriving (Show)
