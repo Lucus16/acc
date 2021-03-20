@@ -1,4 +1,2 @@
 /bin/
 /dist-newstyle/
-/test/*
-!/test/*.c

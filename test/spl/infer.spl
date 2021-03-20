@@ -1,0 +1,43 @@
+identity(x) {
+	return x;
+}
+
+isequal(x, y) {
+	return x == y;
+}
+
+isnotequal(x, y) {
+	return !isequal(x, y);
+}
+
+isequalornotequal(x, y) {
+	return isequal(x, y) || isnotequalorequal(x, y);
+}
+
+isnotequalorequal(x, y) {
+	return isnotequal(x, y) || isequalornotequal(x, y);
+}
+
+egl(x, y) {
+	return x == y || gle(x, y);
+}
+
+gle(x, y) {
+	return x > y || leg(x, y);
+}
+
+leg(x, y) {
+	return x < y || egl(x, y);
+}
+
+clamp(x, max) {
+	if (x > max) {
+		return max;
+	}
+
+	if (x < 0) {
+		return 0;
+	}
+
+	return x;
+}
