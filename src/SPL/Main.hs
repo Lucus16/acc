@@ -2,14 +2,17 @@
 
 module SPL.Main where
 
+import Data.Foldable (for_)
+import Data.Traversable (for)
 import System.Environment (getArgs)
 import System.Exit (ExitCode(..), exitWith)
 import System.Process (proc, CreateProcess(..), waitForProcess, withCreateProcess)
 import Text.Megaparsec (errorBundlePretty)
-import qualified Data.Text.IO as TextIO
+import qualified Data.Text.IO as Text
 
 import SPL.Parser (file, parse)
-import SPL.Printer (render)
+import Pretty (render)
+import SPL.Resolver (resolve)
 
 cmd :: FilePath -> [String] -> IO ExitCode
 cmd bin args = do
@@ -19,13 +22,15 @@ cmd bin args = do
 main :: IO ()
 main = do
   args <- getArgs
-  let path = head args
-  program <- TextIO.readFile path
+  ast <- fmap concat $ for args $ \path -> do
+    program <- Text.readFile path
 
-  ast <- case parse file path program of
-    Left errorBundle -> do
-      putStr $ errorBundlePretty errorBundle
-      exitWith $ ExitFailure 1
-    Right ast -> pure ast
+    case parse file path program of
+      Left errorBundle -> do
+        putStr $ errorBundlePretty errorBundle
+        exitWith $ ExitFailure 1
+      Right ast -> pure ast
 
-  TextIO.putStrLn $ render ast
+  case resolve ast of
+    Left errs -> for_ errs $ Text.putStrLn . render
+    Right (resolved, _) -> Text.putStrLn $ render resolved

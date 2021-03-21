@@ -1,14 +1,16 @@
 module SPL.Infer where
 
 import Data.Text (Text)
-import Control.Monad.Writer (MonadWriter, Writer)
+import Control.Monad.Writer (MonadWriter, Writer, tell)
 import Control.Monad.State (StateT)
 import Data.Map (Map)
+
+import SPL.Syntax
 
 data Constraint = SubtypeOf (Type Text) (Type Text)
 
 constrain :: MonadWriter (Sourced Constraint) m => Type Text -> Type Text -> Source -> m ()
-constrain found expected src = write $ Sourced src $ found `SubtypeOf` expected
+constrain found expected src = tell $ Sourced src $ found `SubtypeOf` expected
 
 statementConstraints :: Type id -> Statement id -> StateT (Map id (Type id)) (Writer (Sourced Constraint)) ()
 statementConstraints returnType (Return (Sourced eSrc e)) = do
@@ -56,10 +58,6 @@ expressionConstraints resultType (Sourced callSrc (Call (Sourced funSrc fun) arg
 --  unify l r
 
 -- I should build steps that work first:
--- - example programs
--- - parsing
--- - resolving identifiers
--- - generating useful unique identifiers
 -- - constraint generation
 
 -- When encountering a call while inferring, first infer the called function
@@ -145,11 +143,5 @@ builtinType Not            = FunctionOf [Bool] Bool
 builtinType And            = FunctionOf [Bool, Bool] Bool
 builtinType Or             = FunctionOf [Bool, Bool] Bool
 
-builtinType Cons           = For All "a" (FunctionOf [a, ListOf a] (ListOf a))
-builtinType IsEmpty        = For All "a" (FunctionOf [ListOf a] Bool)
+builtinType Prepend        = For All "a" (FunctionOf [a, ListOf a] (ListOf a))
 builtinType EmptyList      = For All "a" (ListOf a)
-builtinType Head           = For All "a" (FunctionOf [ListOf a] a)
-builtinType Tail           = For All "a" (FunctionOf [ListOf a] (ListOf a))
-builtinType First          = For All "a" (For All "b" (FunctionOf [TupleOf [a, b]] a))
-builtinType Second         = For All "a" (For All "b" (FunctionOf [TupleOf [a, b]] b))
-builtinType Print          = For All "a" (FunctionOf [a] Void)

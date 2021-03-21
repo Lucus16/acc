@@ -198,7 +198,7 @@ fundec = do
   args <- parenthesized $ separateBy comma identifier
   typ <- optional $ symbol "::" >> functionType
   symbol "{"
-  stmts <- many $ sourced statement
+  stmts <- many statement
   symbol "}"
   pure $ Fundec name args typ stmts
 
@@ -249,8 +249,8 @@ assignment = lValue <* symbol "=" <*> expression <* symbol ";"
 comment :: Parser (Statement Name)
 comment = fmap (Comment . Text.pack) $ chunk "#" *> many (satisfy (/='\n')) <* space
 
-statement :: Parser (Statement Name)
-statement =
+statement :: Parser (SourcedStatement Name)
+statement = sourced $
   comment
   <|> returnStatement
   <|> ifStatement
@@ -262,8 +262,8 @@ statement =
 declaration :: Parser (Statement Name)
 declaration = try vardec <|> fundec
 
-file :: Parser [Statement Name]
-file = many declaration
+file :: Parser [Sourced (Statement Name)]
+file = many $ sourced declaration
 
 parse :: Parser a -> String -> Text -> Either (ParseErrorBundle Text Void) a
 parse parser path input = evalState
