@@ -1,20 +1,58 @@
-no_args() { return; }
-one_arg(x) { return; }
-two_args(x, y) { return; }
-three_args(x, y, z) { return; }
+no_args() {
+	return;
+}
 
-zero_int() :: -> Int { return 0; }
-zero_bool() :: -> Bool { return False; }
-zero_char() :: -> Char { return '\0'; }
-zero_void() :: -> Void { return; }
-zero_pair() :: -> (Int, Bool) { return (0, False); }
-zero_list() :: -> [Int] { return []; }
+one_arg(x) {
+	return;
+}
 
-inc_untyped(x) { return x + 1; }
-inc_typed(x) :: Int -> Int { return x + 1; }
+two_args(x, y) {
+	return;
+}
 
-id_untyped(x) { return x; }
-id_typed(x) :: a -> a { return x; }
+three_args(x, y, z) {
+	return;
+}
+
+zero_int() :: -> Int {
+	return 0;
+}
+
+zero_bool() :: -> Bool {
+	return False;
+}
+
+zero_char() :: -> Char {
+	return '\0';
+}
+
+zero_void() :: -> Void {
+	return;
+}
+
+zero_pair() :: -> (Int, Bool) {
+	return (0, False);
+}
+
+zero_list() :: -> [Int] {
+	return [];
+}
+
+inc_untyped(x) {
+	return x + 1;
+}
+
+inc_typed(x) :: Int -> Int {
+	return x + 1;
+}
+
+id_untyped(x) {
+	return x;
+}
+
+id_typed(x) :: a -> a {
+	return x;
+}
 
 digits(x) {
 	if (x < 10) {
