@@ -12,11 +12,11 @@ import qualified SPL.Syntax as SPL
 
 import Util (tshow)
 
-data Spacing = Line | EmptyLine
+data Spacing = NoSpacing | Space | Line | EmptyLine
 
 data PrinterState = PrinterState
   { psIndentation :: Text
-  , psNextSpace :: Maybe Spacing
+  , psNextSpace :: Spacing
   }
 
 type Printer = WriterT Text (State PrinterState)
@@ -30,20 +30,21 @@ text t
   | otherwise   = do
       nextSpace <- gets psNextSpace
       case nextSpace of
-        Nothing -> pure ()
-        Just Line -> tell "\n" >> gets psIndentation >>= tell
-        Just EmptyLine -> tell "\n\n" >> gets psIndentation >>= tell
-      modify $ \s -> s { psNextSpace = Nothing }
+        NoSpacing -> pure ()
+        Space -> tell " "
+        Line -> tell "\n" >> gets psIndentation >>= tell
+        EmptyLine -> tell "\n\n" >> gets psIndentation >>= tell
+      modify $ \s -> s { psNextSpace = NoSpacing }
       tell t
 
 line :: Printer ()
-line = modify $ \s -> s { psNextSpace = Just Line }
+line = modify $ \s -> s { psNextSpace = Line }
 
 emptyLine :: Printer ()
-emptyLine = modify $ \s -> s { psNextSpace = Just EmptyLine }
+emptyLine = modify $ \s -> s { psNextSpace = EmptyLine }
 
 space :: Printer ()
-space = text " "
+space = modify $ \s -> s { psNextSpace = Space }
 
 instance Pretty a => Pretty (Maybe a) where
   pretty Nothing  = pure ()
@@ -63,17 +64,16 @@ indentBy t body = do
   modify $ \s -> s { psIndentation = indent }
   pure result
 
-braced :: Printer a -> Printer a
+braced :: Pretty a => a -> Printer ()
 braced body = do
   text "{" >> line
-  result <- indentBy "\t" body
+  indentBy "\t" $ pretty body
   line >> text "}" >> emptyLine
-  pure result
 
 initialState :: PrinterState
 initialState = PrinterState
   { psIndentation = ""
-  , psNextSpace = Nothing
+  , psNextSpace = NoSpacing
   }
 
 render :: Pretty a => a -> Text
@@ -109,13 +109,39 @@ instance Pretty id => Pretty (SPL.Type id) where
   pretty (SPL.ListOf typ) = text "[" >> pretty typ >> text "]"
   pretty (SPL.TupleOf typs) = arguments typs
 
+instance Pretty SPL.Builtin where
+  pretty = text . SPL.operatorText
+
+binary :: Pretty id => SPL.Builtin -> SPL.SourcedExpr id -> SPL.SourcedExpr id -> Printer ()
+binary op x y = pretty x >> space >> pretty op >> space >> pretty y
+
+semicolon :: Printer ()
+semicolon = text ";" >> line
+
 instance Pretty id => Pretty (SPL.Expr' id SPL.Sourced) where
   pretty (SPL.Integer i) = pretty $ tshow i
   pretty (SPL.Boolean True) = text "True"
   pretty (SPL.Boolean False) = text "False"
+  pretty (SPL.Character '\'') = text "'\\''"
+  pretty (SPL.Character '\\') = text "'\\\\'"
+  pretty (SPL.Character '\0') = text "'\\0'"
+  pretty (SPL.Character '\a') = text "'\\a'"
+  pretty (SPL.Character '\n') = text "'\\n'"
+  pretty (SPL.Character '\r') = text "'\\r'"
+  pretty (SPL.Character '\t') = text "'\\t'"
+  pretty (SPL.Character c) = text "'" >> text (Text.singleton c) >> text "'"
   pretty (SPL.Variable var) = pretty var
   pretty (SPL.Access expr field) = pretty expr >> text "." >> pretty field
-  pretty _ = pure ()
+  pretty (SPL.Call fun args) = pretty fun >> arguments args
+  pretty (SPL.Builtin SPL.Negate [x]) = text "-" >> pretty x
+  pretty (SPL.Builtin SPL.Not [x]) = text "!" >> pretty x
+  pretty (SPL.Builtin SPL.EmptyList []) = text "[]"
+  pretty (SPL.Builtin SPL.Tuple [arg]) = pretty arg
+  pretty (SPL.Builtin SPL.Tuple args) = arguments args
+  pretty (SPL.Builtin op [x, y]) = binary op x y
+  pretty (SPL.Builtin builtin args) = error $
+    show builtin <> " does not take " <> show (length args) <> " arguments."
+
 
 instance Pretty id => Pretty (SPL.Statement id) where
   pretty (SPL.Comment c) = text "#" >> text (Text.stripEnd c) >> line
@@ -129,13 +155,31 @@ instance Pretty id => Pretty (SPL.Statement id) where
       Just typ -> do
         text "::" >> space
         pretty typ >> space
-    braced $ pretty body
+    braced body
 
   pretty (SPL.Vardec mbType name body) = do
     maybe (text "var") pretty mbType >> space
-    pretty name >> space >> text "=" >> space >> pretty body >> text ";"
+    pretty name >> space >> text "=" >> space >> pretty body >> semicolon
+
+  pretty (SPL.Assign var fields value) = do
+    pretty var
+    for_ fields ((text "." >> ) . pretty)
+    space >> text "=" >> space >> pretty value >> semicolon
+
+  pretty (SPL.Expression expr) = pretty expr >> semicolon
 
   pretty (SPL.Return mbExpr) =
-    text "return" >> for_ mbExpr ((space >>) . pretty) >> text ";"
+    text "return" >> for_ mbExpr ((space >>) . pretty) >> semicolon
 
-  pretty _ = pure ()
+  pretty (SPL.If c t f) = do
+    text "if"
+    parenthesized $ pretty c
+    braced t
+    case f of
+      [] -> pure ()
+      body -> space >> text "else" >> space >> braced body
+
+  pretty (SPL.While c body) = do
+    text "if"
+    parenthesized $ pretty c
+    braced body

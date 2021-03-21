@@ -1,12 +1,16 @@
 module SPL.Syntax where
 
 import Data.Text (Text)
+import Data.Function (on)
 
 data Source = Source !FilePath !Int !Int !Int !Int
 data Sourced a = Sourced
   { source :: Source
   , unSourced :: a
   } deriving (Functor)
+
+instance Eq a => Eq (Sourced a) where
+  (==) = (==) `on` unSourced
 
 instance Semigroup Source where
   lhs <> rhs = src
@@ -31,12 +35,27 @@ data Builtin
   | GreaterOrEqual
   | And
   | Or
-  | Tuple
   | Prepend
-  | Print
-  | IsEmpty
+  | Tuple
   | EmptyList
-  deriving (Show)
+  deriving (Eq, Show)
+
+operatorText :: Builtin -> Text
+operatorText Add = "+"
+operatorText Subtract = "-"
+operatorText Multiply = "*"
+operatorText Divide = "/"
+operatorText Modulo = "%"
+operatorText Equal = "=="
+operatorText NotEqual = "!="
+operatorText LessThan = "<"
+operatorText LessOrEqual = "<="
+operatorText GreaterThan = ">"
+operatorText GreaterOrEqual = ">="
+operatorText And = "&&"
+operatorText Or = "||"
+operatorText Prepend = ":"
+operatorText x = error $ "not an operator: " <> show x
 
 data Expr' id f
   = Integer Integer
@@ -72,4 +91,4 @@ data Type id
   | TupleOf [Type id]
   | Typevar id
   | Void
-  deriving (Show)
+  deriving (Eq, Show)

@@ -148,23 +148,6 @@ separateSomeBy sep p = (:) <$> p <*> many (sep >> p)
 separateMultipleBy :: Parser a -> Parser b -> Parser [b]
 separateMultipleBy sep p = (:) <$> p <*> some (sep >> p)
 
-operatorText :: Builtin -> Text
-operatorText Add = "+"
-operatorText Subtract = "-"
-operatorText Multiply = "*"
-operatorText Divide = "/"
-operatorText Modulo = "%"
-operatorText Equal = "=="
-operatorText NotEqual = "!="
-operatorText LessThan = "<"
-operatorText LessOrEqual = "<="
-operatorText GreaterThan = ">"
-operatorText GreaterOrEqual = ">="
-operatorText And = "&&"
-operatorText Or = "||"
-operatorText Prepend = ":"
-operatorText x = error $ "not an operator: " <> show x
-
 sourcedBuiltin :: Builtin -> Expression -> Expression -> Expression
 sourcedBuiltin op lhs rhs = Sourced (source lhs <> source rhs) $ Builtin op [lhs, rhs]
 
