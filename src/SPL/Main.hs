@@ -9,6 +9,7 @@ import Text.Megaparsec (errorBundlePretty)
 import qualified Data.Text.IO as TextIO
 
 import SPL.Parser (file, parse)
+import SPL.Printer (render)
 
 cmd :: FilePath -> [String] -> IO ExitCode
 cmd bin args = do
@@ -27,5 +28,4 @@ main = do
       exitWith $ ExitFailure 1
     Right ast -> pure ast
 
-  --print ast
-  pure ()
+  TextIO.putStrLn $ render ast

@@ -30,4 +30,8 @@ swap(t) {
 	t.snd = tmp;
 }
 
+swapped(t) {
+	return (t.snd, t.fst);
+}
+
 Int count = 0;

@@ -11,9 +11,9 @@ import Data.Void (Void)
 import Control.Monad.State (State, get, put, evalState)
 import Text.Megaparsec
   ((<|>), ParseErrorBundle, ParsecT, SourcePos(..), Stream, Token, Tokens, chunk, getSourcePos,
-   many, notFollowedBy, runParserT, satisfy, some, takeWhile1P, takeWhileP, unPos)
+   many, notFollowedBy, runParserT, satisfy, some, takeWhile1P, takeWhileP, try, unPos)
 import Text.Megaparsec.Char.Lexer (decimal)
-import Data.Char (isAlpha, isDigit, isSpace)
+import Data.Char (isAlpha, isControl, isDigit, isSpace)
 
 import SPL.Syntax
 
@@ -65,26 +65,76 @@ integer = sourced $ lexeme $ Integer <$> decimal
 boolean :: Parser Expression
 boolean = sourced $ fmap Boolean $ (keyword "False" $> False) <|> (keyword "True" $> True)
 
+character :: Parser Expression
+character = sourced $ fmap Character $ do
+  void $ chunk "'"
+  c <- satisfy (not . needsEscape) <|> escapeSequence
+  void $ chunk "'"
+  space
+  pure c
+  where
+    needsEscape c = isControl c || c == '\\' || c == '\''
+    escapeSequence = chunk "\\" >>
+      (   '\\' <$ chunk "\\"
+      <|> '\"' <$ chunk "\""
+      <|> '\'' <$ chunk "'"
+      <|> '\0' <$ chunk "0"
+      <|> '\a' <$ chunk "a"
+      <|> '\n' <$ chunk "n"
+      <|> '\r' <$ chunk "r"
+      <|> '\t' <$ chunk "t")
+
+arguments :: Parser [Expression]
+arguments = parenthesized $ separateBy comma expression
+
+tuple :: Parser Expression
+tuple = sourced $ Builtin Tuple <$> arguments
+
 literal :: Parser Expression
-literal = integer <|> boolean
+literal = integer <|> boolean <|> character <|> tuple <|> emptyList
 
 variable :: Parser Expression
 variable = sourced $ Variable <$> identifier
 
-call :: Parser Expression
-call = sourced $ Call <$> identifier <*> parenthesized (separateBy comma expression)
+term :: Parser Expression
+term = literal <|> variable
+
+sourcedAccess :: Expression -> Sourced Name -> Expression
+sourcedAccess lhs (Sourced rhsSrc rhs) = Sourced (rhsSrc <> source lhs) $ Access lhs rhs
+
+trailingAccess :: Parser (Expression -> Expression)
+trailingAccess = fmap (flip sourcedAccess) $ sourced $ chunk "." >> identifier
+
+sourcedCall :: Expression -> Sourced [Expression] -> Expression
+sourcedCall lhs (Sourced rhsSrc rhs) = Sourced (rhsSrc <> source lhs) $ Call lhs rhs
+
+trailingCall :: Parser (Expression -> Expression)
+trailingCall = flip sourcedCall <$> sourced arguments
+
+postfix :: Parser Expression
+postfix = foldl (&) <$> term <*> many rest
+  where rest = trailingAccess <|> trailingCall
 
 negation :: Parser Expression
-negation = sourced $ fmap (Builtin Negate . pure) $ symbol "-" *> term
+negation = sourced $ fmap (Builtin Negate . pure) $ symbol "-" *> prefix
 
 inversion :: Parser Expression
-inversion = sourced $ fmap (Builtin Not . pure) $ symbol "!" *> term
+inversion = sourced $ fmap (Builtin Not . pure) $ symbol "!" *> prefix
 
-term :: Parser Expression
-term = literal <|> variable <|> call <|> negation <|> inversion <|> parenthesized expression
+prefix :: Parser Expression
+prefix = negation <|> inversion <|> postfix
+
+emptyList :: Parser Expression
+emptyList = sourced $ bracketed $ pure $ Builtin EmptyList []
 
 comma :: Parser ()
 comma = symbol ","
+
+bracketed :: Parser a -> Parser a
+bracketed p = symbol "[" *> p <* symbol "]"
+
+braced :: Parser a -> Parser a
+braced p = symbol "{" *> p <* symbol "}"
 
 parenthesized :: Parser a -> Parser a
 parenthesized p = symbol "(" *> p <* symbol ")"
@@ -116,11 +166,7 @@ operatorText Prepend = ":"
 operatorText x = error $ "not an operator: " <> show x
 
 sourcedBuiltin :: Builtin -> Expression -> Expression -> Expression
-sourcedBuiltin op lhs rhs = Sourced src $ Builtin op [lhs, rhs]
-  where
-    Source path startLine startCol _ _ = source lhs
-    Source _ _ _ endLine endCol = source rhs
-    src = Source path startLine startCol endLine endCol
+sourcedBuiltin op lhs rhs = Sourced (source lhs <> source rhs) $ Builtin op [lhs, rhs]
 
 trailingBinary :: Parser Expression -> Builtin -> Parser (Expression -> Expression)
 trailingBinary sub op = symbol (operatorText op) >> fmap (flip $ sourcedBuiltin op) sub
@@ -134,7 +180,7 @@ binary sub count ops = foldl (&) <$> sub <*> count rest
   where rest = asum $ map (trailingBinary sub) ops
 
 multiplicative :: Parser Expression
-multiplicative = binary term many [Multiply, Divide, Modulo]
+multiplicative = binary prefix many [Multiply, Divide, Modulo]
 
 additive :: Parser Expression
 additive = binary multiplicative many [Add, Subtract]
@@ -173,13 +219,17 @@ fundec = do
   symbol "}"
   pure $ Fundec name args typ stmts
 
+tupleType :: Parser (Type Name)
+tupleType = parenthesized $ TupleOf <$> separateBy comma valueType
+
 valueType :: Parser (Type Name)
 valueType =
   (keyword "Bool" $> Bool)
   <|> (keyword "Char" $> Char)
   <|> (keyword "Int" $> Int)
-  <|> parenthesized (TupleOf <$> separateMultipleBy comma valueType)
-  <|> (symbol "[" *> fmap ListOf valueType <* symbol "]")
+  <|> tupleType
+  <|> (ListOf <$> bracketed valueType)
+  <|> (Typevar <$> identifier)
 
 functionType :: Parser (Type Name)
 functionType = do
@@ -189,27 +239,50 @@ functionType = do
   pure $ FunctionOf params ret
 
 returnStatement :: Parser (Statement Name)
-returnStatement = fmap Return $ keyword "return" *> expression <* symbol ";"
+returnStatement = fmap Return $ keyword "return" *> optional expression <* symbol ";"
 
 ifStatement :: Parser (Statement Name)
 ifStatement = do
   c <- keyword "if" >> parenthesized expression
-  t <- many statement
-  f <- fromMaybe [] <$> optional (keyword "else" >> many statement)
+  t <- braced $ many statement
+  f <- fromMaybe [] <$> optional (keyword "else" >> braced (many statement))
   pure $ If c t f
 
 whileStatement :: Parser (Statement Name)
 whileStatement = While <$> (keyword "while" >> parenthesized expression) <*> many statement
 
+call :: Parser Expression
+call = sourced $ Call <$> variable <*> arguments
+
 callStatement :: Parser (Statement Name)
 callStatement = Expression <$> call <* symbol ";"
 
+lValue :: Parser (Expression -> Statement Name)
+lValue = Assign <$> identifier <*> many (chunk "." >> identifier)
+
+assignment :: Parser (Statement Name)
+assignment = lValue <* symbol "=" <*> expression <* symbol ";"
+
+comment :: Parser (Statement Name)
+comment = fmap (Comment . Text.pack) $ chunk "#" *> many (satisfy (/='\n')) <* space
+
 statement :: Parser (Statement Name)
-statement = returnStatement <|> ifStatement <|> whileStatement <|> callStatement
+statement =
+  comment
+  <|> returnStatement
+  <|> ifStatement
+  <|> whileStatement
+  <|> try callStatement
+  <|> try assignment
+  <|> declaration
+
+declaration :: Parser (Statement Name)
+declaration = try vardec <|> fundec
 
 file :: Parser [Statement Name]
-file = many statement
+file = many declaration
 
 parse :: Parser a -> String -> Text -> Either (ParseErrorBundle Text Void) a
-parse parser path input = evalState (error "no end position available before parsing anything") $
-  runParserT parser path input
+parse parser path input = evalState
+  (runParserT parser path input)
+  (error "no end position available before parsing anything")

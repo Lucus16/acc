@@ -1,10 +1,19 @@
 module SPL.Syntax where
 
+import Data.Text (Text)
+
 data Source = Source !FilePath !Int !Int !Int !Int
 data Sourced a = Sourced
   { source :: Source
   , unSourced :: a
   } deriving (Functor)
+
+instance Semigroup Source where
+  lhs <> rhs = src
+    where
+      Source path startLine startCol _ _ = lhs
+      Source _ _ _ endLine endCol = rhs
+      src = Source path startLine startCol endLine endCol
 
 data Builtin
   = Negate
@@ -29,32 +38,27 @@ data Builtin
   | EmptyList
   deriving (Show)
 
-data Field
-  = Head
-  | Tail
-  | First
-  | Second
-  deriving (Show)
-
 data Expr' id f
   = Integer Integer
   | Boolean Bool
   | Character Char
-  | Call id [f (Expr' id f)]
+  | Call (f (Expr' id f)) [f (Expr' id f)]
   | Builtin Builtin [f (Expr' id f)]
   | Variable id
-  | Access (f (Expr' id f)) Field
+  | Access (f (Expr' id f)) id
 
 type SourcedExpr id = Sourced (Expr' id Sourced)
 
 data Statement id
   = If (SourcedExpr id) [Statement id] [Statement id]
   | While (SourcedExpr id) [Statement id]
-  | Assign id [Field] (SourcedExpr id)
+  | Assign id [id] (SourcedExpr id)
   | Expression (SourcedExpr id)
-  | Return (SourcedExpr id)
+  | Return (Maybe (SourcedExpr id))
   | Vardec (Maybe (Type id)) id (SourcedExpr id)
   | Fundec id [id] (Maybe (Type id)) [Sourced (Statement id)]
+  | Comment Text
+  | EmptyLine
 
 data Class = Ord | Eq | Show | All deriving (Eq, Ord, Show)
 
