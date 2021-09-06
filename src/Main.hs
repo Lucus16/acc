@@ -2,12 +2,13 @@
 
 module Main where
 
+import qualified Data.Text.IO as TextIO
 import System.Environment (getArgs)
 import System.Exit (ExitCode(..), exitWith)
 import System.FilePath.Posix (dropExtension, replaceExtension)
-import System.Process (proc, CreateProcess(..), waitForProcess, withCreateProcess)
+import System.Process
+  (CreateProcess(..), proc, waitForProcess, withCreateProcess)
 import Text.Megaparsec (errorBundlePretty, parse)
-import qualified Data.Text.IO as TextIO
 
 import Assembler (compile)
 import Parser (file)

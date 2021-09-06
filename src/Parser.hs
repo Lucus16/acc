@@ -153,8 +153,8 @@ exprStatement = Expression <$> expression <* symbol ";"
 ifStatement :: Parser Statement
 ifStatement = do
   c <- keyword "if" >> parenthesized expression
-  t <- branch
-  f <- optional (keyword "else" >> branch)
+  t <- statement
+  f <- optional (keyword "else" >> statement)
   pure $ If c t f
 
 whileStatement :: Parser Statement
@@ -176,7 +176,10 @@ forStatement = do
   symbol ";"
   step <- maybe Inert Expression <$> optional expression
   symbol ")"
-  For init cond step <$> statement
+  For init cond step <$> statementOrDeclaration
+
+statementOrDeclaration :: Parser Statement
+statementOrDeclaration = try statement <|> declaration
 
 statement :: Parser Statement
 statement = block
@@ -188,23 +191,10 @@ statement = block
   <|> returnStatement
   <|> whileStatement
   <|> nullStatement
-  <|> declaration
-  <|> exprStatement
-
-branch :: Parser Statement
-branch = block
-  <|> breakStatement
-  <|> continueStatement
-  <|> doWhileStatement
-  <|> forStatement
-  <|> ifStatement
-  <|> returnStatement
-  <|> whileStatement
-  <|> nullStatement
   <|> exprStatement
 
 block :: Parser Statement
-block = fmap Block $ between (symbol "{") (symbol "}") $ many statement
+block = fmap Block $ between (symbol "{") (symbol "}") $ many statementOrDeclaration
 
 type_ :: Parser Type
 type_ = keyword "int"
