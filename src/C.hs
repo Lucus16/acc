@@ -55,19 +55,19 @@ irStatement (If condition true false) = fmap pure $ IR.If
 irStatement (DoWhile body condition) = do
   body' <- irStatement body
   condition' <- traverse IR.lookup condition
-  pure [IR.DoWhile body' condition']
+  pure [IR.Loop IR.OneOrMore condition' body' []]
 
 irStatement (For init cond step body) = IR.block $ do
   init' <- irStatement init
   cond' <- traverse IR.lookup cond
   step' <- irStatement step
   body' <- irStatement body
-  pure $ init' <> [IR.While cond' (body' <> step')]
+  pure $ init' <> [IR.Loop IR.ZeroOrMore cond' body' step']
 
 irStatement (While condition body) = do
   condition' <- traverse IR.lookup condition
   body' <- irStatement body
-  pure [IR.While condition' body']
+  pure [IR.Loop IR.ZeroOrMore condition' body' []]
 
 irFile :: C.File -> Either Text IR.TopLevel
 irFile [Fdef returnType name params body] = IR.buildFdef returnType name params $ irStatement body

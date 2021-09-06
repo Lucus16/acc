@@ -1,4 +1,4 @@
-{-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE BlockArguments    #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -44,19 +44,6 @@ newLabel name = do
 
 emit :: Text -> Emitter ()
 emit line = modify $ \s -> s { eLines = line : eLines s }
-
-block :: (Text -> Text -> Emitter a) -> Emitter a
-block inner = do
-  outerBreak <- gets eBreak
-  outerContinue <- gets eContinue
-  breakLabel <- newLabel "break"
-  continueLabel <- newLabel "continue"
-  modify $ \s -> s { eBreak = Just breakLabel, eContinue = Just continueLabel }
-  label continueLabel
-  result <- inner breakLabel continueLabel
-  label breakLabel
-  modify $ \s -> s { eBreak = outerBreak, eContinue = outerContinue }
-  pure result
 
 label :: Text -> Emitter ()
 label name = emit $ name <> ":"
@@ -183,6 +170,7 @@ instance Asm C.Binary where
   asm C.Mul = emit "imul %rcx"
   asm C.Add = emit "add %rcx, %rax"
   asm C.Sub = emit "sub %rcx, %rax"
+  asm C.Mod = emit "cqo" >> emit "idivq %rcx" >> emit "movq %rdx, %rax"
   asm C.Eq  = compareAsm >> emit "sete %al"
   asm C.Neq = compareAsm >> emit "setne %al"
   asm C.Lt  = compareAsm >> emit "setl %al"
@@ -224,15 +212,31 @@ instance Asm IR.Statement where
     asm fBlock
     label end
 
-  asm (IR.DoWhile body cond) = block $ \_break continue -> do
-    asm body
-    asm cond
-    emit "cmpq $0, %rax"
-    emit $ "jne " <> continue
+  asm (IR.Loop iterationCount condition body update) = do
+    breakLabel <- newLabel "break"
+    continueLabel <- newLabel "continue"
+    bodyLabel <- newLabel "loopbody"
+    checkLabel <- newLabel "loopcheck"
 
-  asm (IR.While cond body) = block $ \break_ continue -> do
-    asm cond
-    emit "cmpq $0, %rax"
-    emit $ "je " <> break_
+    outerBreak <- gets eBreak
+    outerContinue <- gets eContinue
+    modify $ \s -> s { eBreak = Just breakLabel, eContinue = Just continueLabel }
+
+    case iterationCount of
+      IR.ZeroOrMore -> jmp checkLabel
+      IR.OneOrMore -> pure ()
+
+    label bodyLabel
     asm body
-    emit $ "jmp " <> continue
+
+    label continueLabel
+    asm update
+
+    label checkLabel
+    asm condition
+    emit "cmpq $0, %rax"
+    emit $ "jne " <> bodyLabel
+
+    label breakLabel
+
+    modify $ \s -> s { eBreak = outerBreak, eContinue = outerContinue }

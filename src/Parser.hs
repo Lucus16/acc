@@ -14,8 +14,8 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Void (Void)
 import Text.Megaparsec
-  (Parsec, ParsecT, Stream, Token, Tokens, between, chunk, eof, many, notFollowedBy,
-  satisfy, takeWhile1P, takeWhileP, try)
+  (Parsec, ParsecT, Stream, Token, Tokens, between, chunk, eof, many,
+  notFollowedBy, satisfy, takeWhile1P, takeWhileP, try)
 import qualified Text.Megaparsec.Char.Lexer as L (decimal, lexeme, symbol)
 
 import C
@@ -41,8 +41,8 @@ space = void $ manyP isSpace
 lexeme :: Parser a -> Parser a
 lexeme = L.lexeme space
 
-symbol :: Text -> Parser Text
-symbol = L.symbol space
+symbol :: Text -> Parser ()
+symbol = void . L.symbol space
 
 keyword :: Text -> Parser Text
 keyword k = chunk k <* notFollowedBy (satisfy identChar) <* space
@@ -113,9 +113,9 @@ conditional = foldr ($) <$> logicalOr <*> many rest
   where
     rest :: Parser (Expression -> Expression)
     rest = do
-      _ <- symbol "?"
+      symbol "?"
       t <- expression
-      _ <- symbol ":"
+      symbol ":"
       f <- conditional
       pure $ \c -> Ternary c t f
 
@@ -161,19 +161,21 @@ whileStatement :: Parser Statement
 whileStatement = While <$> (keyword "while" >> parenthesized expression) <*> statement
 
 doWhileStatement :: Parser Statement
-doWhileStatement = DoWhile
-  <$> (keyword "do" >> statement)
-  <*> (keyword "while" >> parenthesized expression)
+doWhileStatement = do
+  body <- keyword "do" >> statement
+  condition <- keyword "while" >> parenthesized expression
+  symbol ";"
+  pure $ DoWhile body condition
 
 forStatement :: Parser Statement
 forStatement = do
   _ <- keyword "for"
-  _ <- symbol "("
+  symbol "("
   init <- nullStatement <|> declaration <|> exprStatement
   cond <- fromMaybe (Expr.Term $ Literal $ Integer 1) <$> optional expression
-  _ <- symbol ";"
+  symbol ";"
   step <- maybe Inert Expression <$> optional expression
-  _ <- symbol ")"
+  symbol ")"
   For init cond step <$> statement
 
 statement :: Parser Statement

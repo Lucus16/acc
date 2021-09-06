@@ -1,14 +1,14 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE NamedFieldPuns             #-}
+{-# LANGUAGE OverloadedStrings          #-}
 
 module IR where
 
 import Control.Monad.Except (throwError)
 import Control.Monad.State (StateT, evalStateT, get, gets, modify, put)
 import Data.Map.Strict (Map)
-import Data.Text (Text)
 import qualified Data.Map.Strict as Map
+import Data.Text (Text)
 
 import qualified Expr
 import Util
@@ -19,14 +19,19 @@ type Identifier = Text
 type Locals = Int
 type Type = Identifier
 
+data IterationCount
+  = ZeroOrMore
+  | OneOrMore
+  deriving (Show)
+
 data Statement
   = Break
   | Continue
   | Expression Expression
   | If Expression Block Block
   | Return Expression
-  | While Expression Block
-  | DoWhile Block Expression
+  -- | Loop iterationCount condition body update
+  | Loop IterationCount Expression Block Block
   deriving (Show)
 
 data TopLevel
