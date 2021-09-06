@@ -3,7 +3,7 @@
 with pkgs;
 
 let
-  ghc = haskell.packages.ghc8103.ghcWithHoogle (h: with h; [
+  ghc = haskellPackages.ghcWithHoogle (h: with h; [
     containers
     filepath
     megaparsec
