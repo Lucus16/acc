@@ -19,7 +19,6 @@ import Text.Megaparsec
 import qualified Text.Megaparsec.Char.Lexer as L (decimal, lexeme, symbol)
 
 import C
-import qualified Expr
 
 type Parser = Parsec Void Text
 
@@ -56,7 +55,7 @@ integer = Integer <$> lexeme L.decimal
 literal :: Parser Literal
 literal = integer
 
-term :: Parser Term
+term :: Parser Expression
 term = Literal <$> literal <|> Variable <$> identifier
 
 parenthesized :: Parser a -> Parser a
@@ -126,7 +125,7 @@ expression :: Parser Expression
 expression = binarySequence assignment [Com]
 
 unary :: Parser Expression
-unary = Expr.Term <$> term
+unary = term
   <|> Unary Neg <$> (symbol "-" *> unary)
   <|> Unary Inv <$> (symbol "~" *> unary)
   <|> Unary Not <$> (symbol "!" *> unary)
@@ -172,7 +171,7 @@ forStatement = do
   _ <- keyword "for"
   symbol "("
   init <- nullStatement <|> declaration <|> exprStatement
-  cond <- fromMaybe (Expr.Term $ Literal $ Integer 1) <$> optional expression
+  cond <- fromMaybe (Literal $ Integer 1) <$> optional expression
   symbol ";"
   step <- maybe Inert Expression <$> optional expression
   symbol ")"

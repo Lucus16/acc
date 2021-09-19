@@ -6,12 +6,11 @@ module C
 import Prelude hiding (init)
 
 import Data.Text (Text)
-import Expr hiding (Expression, Term)
+import Expr hiding (Expression)
 import qualified Expr
 import qualified IR
 
 type Expression = Expr.Expression Identifier
-type Term = Expr.Term Identifier
 
 data TopLevel
   = FunctionDefinition Type Identifier [Parameter] Statement

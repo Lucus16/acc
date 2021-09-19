@@ -84,9 +84,9 @@ instance Asm IR.Expression where
     asm value
     emit $ "movq %rax, -" <> tshow var <> "(%rbp)"
 
-  asm (Expr.Term (Expr.Variable var)) = asm var
-  asm (Expr.Term (C.Literal (C.Integer 0))) = emit "xorq %rax, %rax"
-  asm (Expr.Term (C.Literal (C.Integer i))) = emit $ "movq $" <> tshow i <> ", %rax"
+  asm (Expr.Variable var) = asm var
+  asm (C.Literal (C.Integer 0)) = emit "xorq %rax, %rax"
+  asm (C.Literal (C.Integer i)) = emit $ "movq $" <> tshow i <> ", %rax"
   asm (C.Unary op e) = asm e >> asm op
   asm (C.Binary C.Com l r) = asm l >> asm r
   asm (C.Binary C.And l r) = do
@@ -136,7 +136,7 @@ instance Asm IR.Expression where
 
     where
       unaryAsm :: Text -> Expr.Expression id -> Maybe (Emitter ())
-      unaryAsm reg (Expr.Term (C.Literal (C.Integer i))) = Just $ do
+      unaryAsm reg (C.Literal (C.Integer i)) = Just $ do
         emit $ "movq $" <> tshow i <> ", %" <> reg
 
       unaryAsm reg (C.Unary C.Neg e) = do

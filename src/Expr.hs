@@ -36,16 +36,12 @@ data Binary
   deriving (Show)
 
 data Expression id
-  = Term (Term id)
+  = Literal Literal
+  | Variable id
   | Unary Unary (Expression id)
   | Binary Binary (Expression id) (Expression id)
   | Assignment id (Expression id)
   | Ternary (Expression id) (Expression id) (Expression id)
-  deriving (Foldable, Functor, Show, Traversable)
-
-data Term id
-  = Literal Literal
-  | Variable id
   deriving (Foldable, Functor, Show, Traversable)
 
 data Literal
