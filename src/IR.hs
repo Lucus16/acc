@@ -84,7 +84,7 @@ lookup name = do
     Nothing -> throwError $ "not declared: " <> tshow name
     Just (_depth, offset) -> pure offset
 
-buildFdef :: Type -> Identifier -> Expr.Parameters -> IR.Builder Block -> Either Text TopLevel
+buildFdef :: Type -> Identifier -> [Expr.Parameter] -> IR.Builder Block -> Either Text TopLevel
 buildFdef typ name params blockBuilder = evalStateT fdefBuilder initialBuilderState
   where
     initialBuilderState = BuilderState

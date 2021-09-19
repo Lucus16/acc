@@ -7,8 +7,10 @@ import Data.Text (Text)
 
 type Identifier = Text
 type Type = Identifier
-type Parameter = ()
-type Parameters = [Parameter]
+
+data Parameter
+  = Parameter Type Identifier
+  deriving (Show)
 
 data Unary
   = Inv
@@ -41,6 +43,7 @@ data Expression id
   | Unary Unary (Expression id)
   | Binary Binary (Expression id) (Expression id)
   | Assignment id (Expression id)
+  | Call (Expression id) [Expression id]
   | Ternary (Expression id) (Expression id) (Expression id)
   deriving (Foldable, Functor, Show, Traversable)
 

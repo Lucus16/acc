@@ -15,7 +15,7 @@ import qualified Data.Text as Text
 import Data.Void (Void)
 import Text.Megaparsec
   (Parsec, ParsecT, Stream, Token, Tokens, between, chunk, eof, many,
-  notFollowedBy, satisfy, takeWhile1P, takeWhileP, try)
+  notFollowedBy, satisfy, sepBy, takeWhile1P, takeWhileP, try)
 import qualified Text.Megaparsec.Char.Lexer as L (decimal, lexeme, symbol)
 
 import C
@@ -56,7 +56,9 @@ literal :: Parser Literal
 literal = integer
 
 term :: Parser Expression
-term = Literal <$> literal <|> Variable <$> identifier
+term = parenthesized expression
+  <|> Literal <$> literal
+  <|> Variable <$> identifier
 
 parenthesized :: Parser a -> Parser a
 parenthesized = between (symbol "(") (symbol ")")
@@ -124,12 +126,20 @@ assignment = try (Assignment <$> identifier <* symbol "=" <*> assignment) <|> co
 expression :: Parser Expression
 expression = binarySequence assignment [Com]
 
+arguments :: Parser [Expression]
+arguments = assignment `sepBy` symbol ","
+
+postfix :: Parser (Expression -> Expression)
+postfix = flip Call <$> parenthesized arguments
+
+postfixExpression :: Parser Expression
+postfixExpression = foldl (&) <$> term <*> many postfix
+
 unary :: Parser Expression
-unary = term
-  <|> Unary Neg <$> (symbol "-" *> unary)
+unary = Unary Neg <$> (symbol "-" *> unary)
   <|> Unary Inv <$> (symbol "~" *> unary)
   <|> Unary Not <$> (symbol "!" *> unary)
-  <|> parenthesized expression
+  <|> postfixExpression
 
 nullStatement :: Parser Statement
 nullStatement = symbol ";" >> pure Inert
@@ -198,11 +208,22 @@ block = fmap Block $ between (symbol "{") (symbol "}") $ many statementOrDeclara
 type_ :: Parser Type
 type_ = keyword "int"
 
-parameters :: Parser Parameters
-parameters = parenthesized $ pure []
+parameter :: Parser Parameter
+parameter = Parameter <$> type_ <*> identifier
+
+parameters :: Parser [Parameter]
+parameters = parenthesized $ parameter `sepBy` symbol ","
+
+function :: Parser TopLevel
+function = do
+  returnType <- type_
+  name <- identifier
+  params <- parameters
+  (FunctionDeclaration returnType name params <$ symbol ";")
+    <|> (FunctionDefinition returnType name params <$> block)
 
 topLevel :: Parser TopLevel
-topLevel = FunctionDefinition <$> type_ <*> identifier <*> parameters <*> block
+topLevel = function
 
 file :: Parser [TopLevel]
 file = space *> many topLevel <* eof

@@ -14,6 +14,7 @@ type Expression = Expr.Expression Identifier
 
 data TopLevel
   = FunctionDefinition Type Identifier [Parameter] Statement
+  | FunctionDeclaration Type Identifier [Parameter]
   deriving (Show)
 
 type File = [TopLevel]
