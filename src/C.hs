@@ -14,7 +14,7 @@ type Expression = Expr.Expression Identifier
 type Term = Expr.Term Identifier
 
 data TopLevel
-  = Fdef Type Identifier Parameters Statement
+  = FunctionDefinition Type Identifier [Parameter] Statement
   deriving (Show)
 
 type File = [TopLevel]
@@ -70,5 +70,5 @@ irStatement (While condition body) = do
   pure [IR.Loop IR.ZeroOrMore condition' body' []]
 
 irFile :: C.File -> Either Text IR.TopLevel
-irFile [Fdef returnType name params body] = IR.buildFdef returnType name params $ irStatement body
+irFile [FunctionDefinition returnType name params body] = IR.buildFdef returnType name params $ irStatement body
 irFile _ = error "multiple toplevels not supported"

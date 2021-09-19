@@ -203,7 +203,7 @@ parameters :: Parser Parameters
 parameters = parenthesized $ pure []
 
 topLevel :: Parser TopLevel
-topLevel = Fdef <$> type_ <*> identifier <*> parameters <*> block
+topLevel = FunctionDefinition <$> type_ <*> identifier <*> parameters <*> block
 
 file :: Parser [TopLevel]
 file = space *> many topLevel <* eof

@@ -71,7 +71,7 @@ instance Asm a => Asm [a] where
   asm = traverse_ asm
 
 instance Asm IR.TopLevel where
-  asm (IR.Fdef _returnType name _parameters locals body) = do
+  asm (IR.FunctionDefinition _returnType name _parameters locals body) = do
     emit $ ".globl " <> name
     label name
     emit "pushq %rbp"

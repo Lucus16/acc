@@ -35,7 +35,7 @@ data Statement
   deriving (Show)
 
 data TopLevel
-  = Fdef Type Identifier Expr.Parameters Locals Block
+  = FunctionDefinition Type Identifier [Expr.Parameter] Locals Block
   deriving (Show)
 
 -- | Offset from the base pointer for a local variable.
@@ -97,4 +97,4 @@ buildFdef typ name params blockBuilder = evalStateT fdefBuilder initialBuilderSt
     fdefBuilder = do
       body <- blockBuilder
       BPOffset locals <- gets bLargestOffset
-      pure $ Fdef typ name params locals body
+      pure $ FunctionDefinition typ name params locals body
