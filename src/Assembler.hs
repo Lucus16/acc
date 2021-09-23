@@ -6,6 +6,7 @@ module Assembler
   ( compile
   ) where
 
+import Control.Monad (unless)
 import Control.Monad.Except (throwError)
 import Control.Monad.State (StateT, execStateT, gets, modify)
 import Data.Foldable (traverse_)
@@ -64,6 +65,9 @@ compile file = do
   assembly <- runEmitter $ asm ir
   pure $ Text.unlines assembly
 
+pushExpr :: IR.Expression -> Emitter ()
+pushExpr e = asm e >> emit "pushq %rax"
+
 class Asm a where
   asm :: a -> Emitter ()
 
@@ -76,13 +80,26 @@ instance Asm IR.TopLevel where
     label name
     emit "pushq %rbp"
     emit "movq %rsp, %rbp"
-    emit $ "subq $" <> tshow locals <> ", %rsp"
+    unless (locals == 0) $ emit $ "subq $" <> tshow locals <> ", %rsp"
     asm body
 
 instance Asm IR.Expression where
   asm (Expr.Assignment (IR.BPOffset var) value) = do
     asm value
-    emit $ "movq %rax, -" <> tshow var <> "(%rbp)"
+    emit $ "movq %rax, " <> tshow var <> "(%rbp)"
+
+  asm (Expr.Assignment (IR.SPOffset var) value) = do
+    asm value
+    emit $ "movq %rax, -" <> tshow var <> "(%rsp)"
+
+  asm (Expr.Assignment IR.Label { } _) = error "cannot assign to function name"
+
+  asm (Expr.Call (C.Variable (IR.Label f _)) args) = do
+    traverse_ pushExpr $ reverse args
+    emit $ "call " <> f
+    unless (null args) $ emit $ "add $" <> tshow (8 * length args) <> ", %rsp"
+
+  asm (Expr.Call _ _) = error "only direct calls are supported so far"
 
   asm (Expr.Variable var) = asm var
   asm (C.Literal (C.Integer 0)) = emit "xorq %rax, %rax"
@@ -179,8 +196,10 @@ instance Asm C.Binary where
   asm C.Geq = compareAsm >> emit "setge %al"
   asm op = error $ "operator not yet implemented: " <> show op
 
-instance Asm IR.BPOffset where
-  asm (IR.BPOffset i) = emit $ "movq -" <> tshow i <> "(%rbp), %rax"
+instance Asm IR.Reference where
+  asm (IR.BPOffset i) = emit $ "movq " <> tshow i <> "(%rbp), %rax"
+  asm (IR.Label l _) = emit $ "movq " <> tshow l <> ", %rax"
+  asm (IR.SPOffset i) = emit $ "movq -" <> tshow i <> "(%rsp), %rax"
 
 instance Asm IR.Statement where
   asm (IR.Expression e) = asm e

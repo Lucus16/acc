@@ -8,8 +8,10 @@ import Data.Text (Text)
 type Identifier = Text
 type Type = Identifier
 
-data Parameter
-  = Parameter Type Identifier
+data Parameter = Parameter
+  { paramType :: Type
+  , paramName :: Identifier
+  }
   deriving (Show)
 
 data Unary

@@ -5,6 +5,7 @@ module C
 
 import Prelude hiding (init)
 
+import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import Expr hiding (Expression)
 import qualified Expr
@@ -42,9 +43,9 @@ irStatement Continue = pure [IR.Continue]
 irStatement Inert = pure []
 irStatement (Return e) = pure . IR.Return <$> traverse IR.lookup e
 
-irStatement (Declaration name Nothing) = IR.declare name >> pure []
+irStatement (Declaration name Nothing) = IR.declareLocal name >> pure []
 irStatement (Declaration name (Just value)) = do
-  IR.declare name
+  IR.declareLocal name
   pure . IR.Expression <$> traverse IR.lookup (Expr.Assignment name value)
 
 irStatement (If condition true false) = fmap pure $ IR.If
@@ -69,6 +70,10 @@ irStatement (While condition body) = do
   body' <- irStatement body
   pure [IR.Loop IR.ZeroOrMore condition' body' []]
 
-irFile :: C.File -> Either Text IR.TopLevel
-irFile [FunctionDefinition returnType name params body] = IR.buildFdef returnType name params $ irStatement body
-irFile _ = error "multiple toplevels not supported"
+irFile :: C.File -> Either Text [IR.TopLevel]
+irFile toplevels = IR.evalBuilder $ catMaybes <$> traverse irFdef toplevels
+  where
+    irFdef (FunctionDeclaration returnType name params)
+      = IR.declareFunction returnType name params >> pure Nothing
+    irFdef (FunctionDefinition returnType name params body)
+      = Just <$> IR.defineFunction returnType name params (irStatement body)
