@@ -1,3 +1,4 @@
+{-# LANGUAGE BlockArguments             #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE NamedFieldPuns             #-}
 {-# LANGUAGE OverloadedStrings          #-}
@@ -6,12 +7,11 @@ module IR where
 
 import Control.Monad (when)
 import Control.Monad.Except (throwError)
-import Control.Monad.State (StateT, evalStateT, get, gets, modify, put)
+import Control.Monad.State (StateT, execStateT, get, gets, modify, put)
 import Data.Foldable (for_)
+import Data.Int (Int64)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Set (Set)
-import qualified Data.Set as Set
 import Data.Text (Text)
 
 import qualified Expr
@@ -20,8 +20,12 @@ import Util
 type Block = [Statement]
 type Expression = Expr.Expression Reference
 type Identifier = Text
-type Locals = Int
-type Type = Identifier
+type StackUsage = Int
+
+data Type
+  = Int
+  | Function Type [Type]
+  deriving (Eq, Show)
 
 data IterationCount
   = ZeroOrMore
@@ -38,13 +42,14 @@ data Statement
   | Loop IterationCount Expression Block Block
   deriving (Show)
 
-data TopLevel
-  = FunctionDefinition Type Identifier [Expr.Parameter] Locals Block
-  deriving (Show)
-
-data Signature
-  = Signature Type [Type]
+data Value
+  = Int64 Int64
   deriving (Eq, Show)
+
+data Definition
+  = FunctionDefinition Type StackUsage Block
+  | GlobalDefinition Type Value
+  deriving (Show)
 
 -- | Things referred to by an identifier.
 data Reference
@@ -52,26 +57,26 @@ data Reference
   = BPOffset Int
   -- | Offset from the stack pointer for a function argument.
   | SPOffset Int
-  | Label Text Signature
+  | Label Text Type
   deriving (Show)
+
+type Depth = Int
 
 data ReferenceState = ReferenceState
   { rReference :: Reference
   , rDepth :: Depth
   } deriving (Show)
 
-type Depth = Int
-type Scope = Map Text ReferenceState
-
 data BuilderState = BuilderState
-  { bScope :: Scope
+  { bLocals :: Map Identifier ReferenceState
+  , bGlobals :: Map Identifier Reference
   -- | The depth indicates the number of nested blocks we're in and is used to
   -- determined if we should fail on a variable being declared twice.
   , bDepth :: Depth
   , bNextOffset :: Int
   , bLargestOffset :: Int
   , bParamOffset :: Int
-  , bDefinedFunctions :: Set Identifier
+  , bDefinitions :: Map Identifier Definition
   }
 
 type Builder = StateT BuilderState (Either Text)
@@ -87,21 +92,21 @@ block inner = do
 
 declareParam :: Text -> Builder ()
 declareParam name = do
-  BuilderState { bScope, bDepth, bParamOffset } <- get
+  BuilderState { bLocals, bDepth, bParamOffset } <- get
   let refState = ReferenceState
         { rReference = BPOffset bParamOffset
         , rDepth = bDepth
         }
 
   modify $ \s -> s
-    { bScope = Map.insert name refState bScope
+    { bLocals = Map.insert name refState bLocals
     , bParamOffset = bParamOffset + 8
     }
 
 declareLocal :: Text -> Builder ()
 declareLocal name = do
-  BuilderState { bScope, bDepth, bNextOffset, bLargestOffset } <- get
-  case name `Map.lookup` bScope of
+  BuilderState { bLocals, bDepth, bNextOffset, bLargestOffset } <- get
+  case name `Map.lookup` bLocals of
     Just refState | rDepth refState == bDepth -> throwError $ "declared twice: " <> tshow name
     _ -> pure ()
 
@@ -112,68 +117,83 @@ declareLocal name = do
         }
 
   modify $ \s -> s
-    { bScope = Map.insert name refState bScope
+    { bLocals = Map.insert name refState bLocals
     , bNextOffset = bNextOffset'
     , bLargestOffset = max bLargestOffset bNextOffset'
     }
 
 lookup :: Text -> IR.Builder Reference
 lookup name = do
-  scope <- gets bScope
-  case name `Map.lookup` scope of
-    Nothing -> throwError $ "not declared: " <> tshow name
+  BuilderState { bLocals, bGlobals } <- get
+  case name `Map.lookup` bLocals of
     Just s  -> pure $ rReference s
+    Nothing -> case name `Map.lookup` bGlobals of
+      Just s  -> pure s
+      Nothing -> throwError $ "not declared: " <> tshow name
 
-evalBuilder :: Builder a -> Either Text a
-evalBuilder b = evalStateT b initialBuilderState
+evalBuilder :: Builder a -> Either Text (Map Identifier Definition)
+evalBuilder b = bDefinitions <$> execStateT b initialBuilderState
   where
     initialBuilderState = BuilderState
-      { bScope = mempty
+      { bLocals = mempty
+      , bGlobals = mempty
       , bDepth = 0
       , bNextOffset = 0
       , bLargestOffset = 0
       , bParamOffset = 0
-      , bDefinedFunctions = mempty
+      , bDefinitions = mempty
       }
 
-declareFunction :: Type -> Identifier -> [Expr.Parameter] -> IR.Builder ()
-declareFunction returnType name params = do
-  BuilderState { bScope, bDepth } <- get
-  let sig = Signature returnType (map Expr.paramType params)
-      insertIt = modify $ \s -> s
-        { bScope = Map.insert name ReferenceState
-          { rReference = Label name sig
-          , rDepth = bDepth
-          } bScope
-        }
+defaultGlobals :: IR.Builder ()
+defaultGlobals = do
+  let zero = GlobalDefinition Int (Int64 0)
+  vars <- gets $ Map.filter isVar . bGlobals
+  modify $ \s -> s { bDefinitions = bDefinitions s `Map.union` fmap (const zero) vars }
+  where
+    isVar (Label _ Function { }) = False
+    isVar (Label _ _)            = True
+    isVar _                      = False
 
-  case name `Map.lookup` bScope of
-    Nothing -> insertIt
-    Just ReferenceState { rDepth } | rDepth < bDepth -> insertIt
-    Just ReferenceState { rReference = Label _ sig' }
-      | sig == sig' -> pure ()
-    Just ReferenceState { } -> error $ "declared twice: " <> show name
+declareGlobal :: Identifier -> Type -> IR.Builder ()
+declareGlobal name typ = do
+  BuilderState { bGlobals } <- get
+  case name `Map.lookup` bGlobals of
+    Just (Label _ typ') | typ == typ' -> pure ()
+    Just _ -> throwError $ "declared twice: " <> tshow name
+    Nothing -> modify $ \s -> s
+      { bGlobals = Map.insert name (Label name typ) bGlobals }
+
+defineGlobal :: Identifier -> Type -> Value -> IR.Builder ()
+defineGlobal name typ value = do
+  declareGlobal name typ
+  BuilderState { bDefinitions } <- get
+  when (name `Map.member` bDefinitions) $ throwError $ "defined twice: " <> tshow name
+  modify $ \s -> s { bDefinitions = Map.insert name (GlobalDefinition typ value) bDefinitions }
+
+declareFunction :: Type -> Identifier -> [Expr.Parameter Type Identifier] -> IR.Builder ()
+declareFunction returnType name params
+  = declareGlobal name (Function returnType (map Expr.paramType params))
 
 defineFunction
-  :: Type
-  -> Identifier
-  -> [Expr.Parameter]
+  :: Identifier
+  -> Type
+  -> [Expr.Parameter Type Identifier]
   -> IR.Builder Block
-  -> IR.Builder TopLevel
-defineFunction returnType name params bodyBuilder = do
+  -> IR.Builder ()
+defineFunction name returnType params bodyBuilder = do
   declareFunction returnType name params
   before <- get
-  when (name `Set.member` bDefinedFunctions before) $ error $ "defined twice: " <> show name
+  when (name `Map.member` bDefinitions before) $ throwError $ "defined twice: " <> tshow name
   put before
     { bLargestOffset = 0
     , bNextOffset = 0
     , bParamOffset = 16
-    , bDefinedFunctions = name `Set.insert` bDefinedFunctions before
     }
 
-  for_ params $ \p -> declareParam (Expr.paramName p)
+  body <- block do
+    for_ params $ declareParam . Expr.paramName
+    bodyBuilder
+  stackUsage <- gets bLargestOffset
 
-  body <- bodyBuilder
-  locals <- gets bLargestOffset
-  modify $ \s -> s { bDepth = bDepth before }
-  pure $ FunctionDefinition returnType name params locals body
+  let definition = FunctionDefinition returnType stackUsage body
+  modify $ \s -> s { bDefinitions = Map.insert name definition (bDefinitions s) }

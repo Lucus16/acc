@@ -10,6 +10,7 @@ import Control.Monad (unless)
 import Control.Monad.Except (throwError)
 import Control.Monad.State (StateT, execStateT, gets, modify)
 import Data.Foldable (traverse_)
+import qualified Data.Map as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 
@@ -49,6 +50,12 @@ emit line = modify $ \s -> s { eLines = line : eLines s }
 label :: Text -> Emitter ()
 label name = emit $ name <> ":"
 
+globalLabel :: Text -> Emitter ()
+globalLabel name = do
+  emit $ ".globl " <> name
+  emit ".align 8"
+  emit $ name <> ":"
+
 jmp :: Text -> Emitter ()
 jmp name = emit $ "jmp " <> name
 
@@ -62,8 +69,19 @@ jmp name = emit $ "jmp " <> name
 compile :: C.File -> Either Error Text
 compile file = do
   ir <- C.irFile file
-  assembly <- runEmitter $ asm ir
+  let (funcs, vars) = Map.partition isFunc ir
+  assembly <- runEmitter do
+    emit ".data"
+    traverse_ (uncurry asmDefinition) (Map.assocs vars)
+    emit ".text"
+    traverse_ (uncurry asmDefinition) (Map.assocs funcs)
   pure $ Text.unlines assembly
+  where
+    isFunc IR.FunctionDefinition { } = True
+    isFunc _ = False
+
+asmDefinition :: Text -> IR.Definition -> Emitter ()
+asmDefinition name definition = globalLabel name >> asm definition
 
 pushExpr :: IR.Expression -> Emitter ()
 pushExpr e = asm e >> emit "pushq %rax"
@@ -74,14 +92,17 @@ class Asm a where
 instance Asm a => Asm [a] where
   asm = traverse_ asm
 
-instance Asm IR.TopLevel where
-  asm (IR.FunctionDefinition _returnType name _parameters locals body) = do
-    emit $ ".globl " <> name
-    label name
+instance Asm IR.Definition where
+  asm (IR.FunctionDefinition _returnType locals body) = do
     emit "pushq %rbp"
     emit "movq %rsp, %rbp"
     unless (locals == 0) $ emit $ "subq $" <> tshow locals <> ", %rsp"
     asm body
+
+  asm (IR.GlobalDefinition IR.Int (IR.Int64 i)) = do
+    emit $ ".long " <> tshow i
+
+  asm (IR.GlobalDefinition IR.Function{} _) = error "bad GlobalDefinition Function"
 
 instance Asm IR.Expression where
   asm (Expr.Assignment (IR.BPOffset var) value) = do
@@ -92,12 +113,22 @@ instance Asm IR.Expression where
     asm value
     emit $ "movq %rax, -" <> tshow var <> "(%rsp)"
 
-  asm (Expr.Assignment IR.Label { } _) = error "cannot assign to function name"
+  asm (Expr.Assignment (IR.Label name IR.Function { }) _) =
+    throwError $ "cannot assign to function " <> tshow name
 
-  asm (Expr.Call (C.Variable (IR.Label f _)) args) = do
+  asm (Expr.Assignment (IR.Label name _typ) value) = do
+    asm value
+    emit $ "movq %rax, " <> name
+
+  asm (Expr.Call (C.Variable (IR.Label f (IR.Function _ret params))) args) = do
+    unless (length args == length params) $ throwError $
+      "expected " <> tshow (length params) <> " arguments but got " <> tshow (length args)
     traverse_ pushExpr $ reverse args
     emit $ "call " <> f
     unless (null args) $ emit $ "add $" <> tshow (8 * length args) <> ", %rsp"
+
+  asm (Expr.Call (C.Variable (IR.Label f _)) _)
+    = throwError $ "cannot call " <> tshow f <> " because it's not a function"
 
   asm (Expr.Call _ _) = error "only direct calls are supported so far"
 
@@ -198,7 +229,7 @@ instance Asm C.Binary where
 
 instance Asm IR.Reference where
   asm (IR.BPOffset i) = emit $ "movq " <> tshow i <> "(%rbp), %rax"
-  asm (IR.Label l _) = emit $ "movq " <> tshow l <> ", %rax"
+  asm (IR.Label l _) = emit $ "movq " <> l <> ", %rax"
   asm (IR.SPOffset i) = emit $ "movq -" <> tshow i <> "(%rsp), %rax"
 
 instance Asm IR.Statement where

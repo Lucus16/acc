@@ -60,6 +60,9 @@ term = parenthesized expression
   <|> Literal <$> literal
   <|> Variable <$> identifier
 
+braced :: Parser a -> Parser a
+braced = between (symbol "{") (symbol "}")
+
 parenthesized :: Parser a -> Parser a
 parenthesized = between (symbol "(") (symbol ")")
 
@@ -203,27 +206,40 @@ statement = block
   <|> exprStatement
 
 block :: Parser Statement
-block = fmap Block $ between (symbol "{") (symbol "}") $ many statementOrDeclaration
+block = fmap Block $ braced $ many statementOrDeclaration
 
 type_ :: Parser Type
 type_ = keyword "int"
 
-parameter :: Parser Parameter
+parameter :: Parser (Parameter Type Identifier)
 parameter = Parameter <$> type_ <*> identifier
 
-parameters :: Parser [Parameter]
+parameters :: Parser [Parameter Type Identifier]
 parameters = parenthesized $ parameter `sepBy` symbol ","
 
-function :: Parser TopLevel
-function = do
-  returnType <- type_
-  name <- identifier
+globalDeclaration :: Type -> Identifier -> Parser TopLevel
+globalDeclaration typ name = do
+  symbol ";"
+  pure $ GlobalDeclaration typ name
+
+globalDefinition :: Type -> Identifier -> Parser TopLevel
+globalDefinition typ name = do
+  symbol "="
+  value <- conditional
+  symbol ";"
+  pure $ GlobalDefinition typ name value
+
+function :: Type -> Identifier -> Parser TopLevel
+function returnType name = do
   params <- parameters
   (FunctionDeclaration returnType name params <$ symbol ";")
-    <|> (FunctionDefinition returnType name params <$> block)
+    <|> (FunctionDefinition returnType name params <$> braced (many statementOrDeclaration))
 
 topLevel :: Parser TopLevel
-topLevel = function
+topLevel = do
+  typ <- type_
+  name <- identifier
+  function typ name <|> globalDeclaration typ name <|> globalDefinition typ name
 
 file :: Parser [TopLevel]
 file = space *> many topLevel <* eof

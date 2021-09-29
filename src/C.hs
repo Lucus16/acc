@@ -1,3 +1,6 @@
+{-# LANGUAGE BlockArguments    #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 module C
   ( module C
   , module Expr
@@ -5,17 +8,23 @@ module C
 
 import Prelude hiding (init)
 
-import Data.Maybe (catMaybes)
+import Control.Monad.Except (throwError)
+import Data.Foldable (traverse_)
+import Data.Map (Map)
 import Data.Text (Text)
+
 import Expr hiding (Expression)
 import qualified Expr
 import qualified IR
+import Util
 
 type Expression = Expr.Expression Identifier
 
 data TopLevel
-  = FunctionDefinition Type Identifier [Parameter] Statement
-  | FunctionDeclaration Type Identifier [Parameter]
+  = FunctionDeclaration Type Identifier [Parameter Type Identifier]
+  | FunctionDefinition Type Identifier [Parameter Type Identifier] [Statement]
+  | GlobalDeclaration Type Identifier
+  | GlobalDefinition Type Identifier Expression
   deriving (Show)
 
 type File = [TopLevel]
@@ -70,10 +79,41 @@ irStatement (While condition body) = do
   body' <- irStatement body
   pure [IR.Loop IR.ZeroOrMore condition' body' []]
 
-irFile :: C.File -> Either Text [IR.TopLevel]
-irFile toplevels = IR.evalBuilder $ catMaybes <$> traverse irFdef toplevels
-  where
-    irFdef (FunctionDeclaration returnType name params)
-      = IR.declareFunction returnType name params >> pure Nothing
-    irFdef (FunctionDefinition returnType name params body)
-      = Just <$> IR.defineFunction returnType name params (irStatement body)
+irType :: Identifier -> IR.Builder IR.Type
+irType "int" = pure IR.Int
+irType t = throwError $ "unknown type: " <> tshow t
+
+irParameter :: Parameter Identifier Identifier -> IR.Builder (Parameter IR.Type Identifier)
+irParameter param = do
+  typ <- irType $ paramType param
+  pure $ Parameter { paramName = paramName param, paramType = typ }
+
+irValue :: Expression -> IR.Builder IR.Value
+irValue (Literal (Integer i)) = pure $ IR.Int64 $ fromInteger i
+irValue e = throwError $ "cannot compute at compile time: " <> tshow e
+
+irTopLevel :: TopLevel -> IR.Builder ()
+irTopLevel (FunctionDeclaration returnType name params) = do
+  returnType' <- irType returnType
+  paramTypes <- traverse (irType . Expr.paramType) params
+  let typ = IR.Function returnType' paramTypes
+  IR.declareGlobal name typ
+
+irTopLevel (FunctionDefinition returnType name params body) = do
+  returnType' <- irType returnType
+  params' <- traverse irParameter params
+  IR.defineFunction name returnType' params' (concat <$> traverse irStatement body)
+
+irTopLevel (GlobalDeclaration typ name) = do
+  typ' <- irType typ
+  IR.declareGlobal name typ'
+
+irTopLevel (GlobalDefinition typ name value) = do
+  typ' <- irType typ
+  value' <- irValue value
+  IR.defineGlobal name typ' value'
+
+irFile :: C.File -> Either Text (Map Identifier IR.Definition)
+irFile toplevels = IR.evalBuilder do
+  traverse_ irTopLevel toplevels
+  IR.defaultGlobals
