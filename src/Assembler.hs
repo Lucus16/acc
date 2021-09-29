@@ -83,8 +83,67 @@ compile file = do
 asmDefinition :: Text -> IR.Definition -> Emitter ()
 asmDefinition name definition = globalLabel name >> asm definition
 
-pushExpr :: IR.Expression -> Emitter ()
-pushExpr e = asm e >> emit "pushq %rax"
+push :: IR.Expression -> Emitter ()
+push e = asm e >> emit "pushq %rax"
+
+-- | jumpIfNot skips to skipLabel if the condition is false.
+jumpIfNot :: IR.Expression -> Text -> Emitter ()
+jumpIfNot (Unary Not cond) target = jumpIf cond target
+
+jumpIfNot (Binary And lhs rhs) target = do
+  jumpIfNot lhs target
+  jumpIfNot rhs target
+
+jumpIfNot (Binary Or lhs rhs) target = do
+  end <- newLabel "endor"
+  jumpIf lhs end
+  jumpIfNot rhs target
+  label end
+
+jumpIfNot (Binary op lhs rhs) target = do
+  asmOperands lhs rhs
+  case op of
+    Eq  -> emit "cmpq %rcx, %rax" >> emit ("jne " <> target)
+    Neq -> emit "cmpq %rcx, %rax" >> emit ("je "  <> target)
+    Lt  -> emit "cmpq %rcx, %rax" >> emit ("jge " <> target)
+    Leq -> emit "cmpq %rcx, %rax" >> emit ("jg "  <> target)
+    Gt  -> emit "cmpq %rcx, %rax" >> emit ("jle " <> target)
+    Geq -> emit "cmpq %rcx, %rax" >> emit ("jl "  <> target)
+    _   -> asm op >> emit "cmpq $0, %rax" >> emit ("je " <> target)
+
+jumpIfNot cond target = do
+  asm cond
+  emit "cmpq $0, %rax"
+  emit $ "je " <> target
+
+jumpIf :: IR.Expression -> Text -> Emitter ()
+jumpIf (Unary Not cond) target = jumpIfNot cond target
+
+jumpIf (Binary Or lhs rhs) target = do
+  jumpIf lhs target
+  jumpIf rhs target
+
+jumpIf (Binary And lhs rhs) target = do
+  end <- newLabel "endand"
+  jumpIfNot lhs end
+  jumpIf rhs target
+  label end
+
+jumpIf (Binary op lhs rhs) target = do
+  asmOperands lhs rhs
+  case op of
+    Eq  -> emit "cmpq %rcx, %rax" >> emit ("je "  <> target)
+    Neq -> emit "cmpq %rcx, %rax" >> emit ("jne " <> target)
+    Lt  -> emit "cmpq %rcx, %rax" >> emit ("jl "  <> target)
+    Leq -> emit "cmpq %rcx, %rax" >> emit ("jle " <> target)
+    Gt  -> emit "cmpq %rcx, %rax" >> emit ("jg "  <> target)
+    Geq -> emit "cmpq %rcx, %rax" >> emit ("jge " <> target)
+    _   -> asm op >> emit "cmpq $0, %rax" >> emit ("jne " <> target)
+
+jumpIf cond target = do
+  asm cond
+  emit "cmpq $0, %rax"
+  emit $ "jne " <> target
 
 class Asm a where
   asm :: a -> Emitter ()
@@ -123,7 +182,7 @@ instance Asm IR.Expression where
   asm (Call (Variable (IR.Label f (IR.Function _ret params))) args) = do
     unless (length args == length params) $ throwError $
       "expected " <> tshow (length params) <> " arguments but got " <> tshow (length args)
-    traverse_ pushExpr $ reverse args
+    traverse_ push $ reverse args
     emit $ "call " <> f
     unless (null args) $ emit $ "add $" <> tshow (8 * length args) <> ", %rsp"
 
@@ -162,44 +221,40 @@ instance Asm IR.Expression where
   asm (Ternary cond t f) = do
     fLabel <- newLabel "elseternary"
     end <- newLabel "endternary"
-    asm cond
-    emit "cmpq $0, %rax"
-    emit $ "je " <> fLabel
+    jumpIfNot cond fLabel
     asm t
     emit $ "jmp " <> end
     label fLabel
     asm f
     label end
 
-  asm (Binary op l r) = do
-    case (unaryAsm "rax" l, unaryAsm "rcx" r) of
-      (_, Just rasm) -> asm l >> rasm >> asm op
-      (Just lasm, _) -> asm r >> emit "movq %rax, %rcx" >> lasm >> asm op
-      (Nothing, Nothing) -> do
-        asm r
-        emit "pushq %rax"
-        asm l
-        emit "popq %rcx"
-        asm op
+  asm (Binary op l r) = asmOperands l r >> asm op
 
-    where
-      unaryAsm :: Text -> Expression id -> Maybe (Emitter ())
-      unaryAsm reg (Literal (C.Integer i)) = Just $ do
-        emit $ "movq $" <> tshow i <> ", %" <> reg
+-- | asmOperands places the lhs in rax and the rhs in rcx.
+asmOperands :: IR.Expression -> IR.Expression -> Emitter ()
+asmOperands l r = case (unaryAsm "rax" l, unaryAsm "rcx" r) of
+  (_, Just rasm) -> asm l >> rasm
+  (Just lasm, _) -> asm r >> emit "movq %rax, %rcx" >> lasm
+  (Nothing, Nothing) -> push r >> asm l >> emit "popq %rcx"
 
-      unaryAsm reg (Unary Neg e) = do
-        a <- unaryAsm reg e
-        Just $ do
-          a
-          emit $ "neg %" <> reg
+  where
+    unaryAsm :: Text -> Expression id -> Maybe (Emitter ())
+    unaryAsm reg (Literal (C.Integer i)) = Just $ do
+      emit $ "movq $" <> tshow i <> ", %" <> reg
 
-      unaryAsm reg (Unary Inv e) = do
-        a <- unaryAsm reg e
-        Just $ do
-          a
-          emit $ "not %" <> reg
+    unaryAsm reg (Unary Neg e) = do
+      a <- unaryAsm reg e
+      Just $ do
+        a
+        emit $ "neg %" <> reg
 
-      unaryAsm _reg _ = Nothing
+    unaryAsm reg (Unary Inv e) = do
+      a <- unaryAsm reg e
+      Just $ do
+        a
+        emit $ "not %" <> reg
+
+    unaryAsm _reg _ = Nothing
 
 instance Asm Unary where
   asm Neg = emit "neg %rax"
@@ -244,18 +299,14 @@ instance Asm IR.Statement where
 
   asm (IR.If cond tBlock []) = do
     end <- newLabel "endif"
-    asm cond
-    emit "cmpq $0, %rax"
-    emit $ "je " <> end
+    jumpIfNot cond end
     asm tBlock
     label end
 
   asm (IR.If cond tBlock fBlock) = do
     fLabel <- newLabel "else"
     end <- newLabel "endif"
-    asm cond
-    emit "cmpq $0, %rax"
-    emit $ "je " <> fLabel
+    jumpIfNot cond fLabel
     asm tBlock
     emit $ "jmp " <> end
     label fLabel
@@ -283,9 +334,7 @@ instance Asm IR.Statement where
     asm update
 
     label checkLabel
-    asm condition
-    emit "cmpq $0, %rax"
-    emit $ "jne " <> bodyLabel
+    jumpIf condition bodyLabel
 
     label breakLabel
 
