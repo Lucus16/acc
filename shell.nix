@@ -1,18 +1,31 @@
-{ pkgs ? import <nixpkgs> { } }:
+{ ghcVersion ? "ghc901", pkgs ? import <nixpkgs> { } }:
 
 with pkgs;
 
 let
-  ghc = haskellPackages.ghcWithHoogle (h: with h; [
-    containers
-    filepath
-    megaparsec
-    mtl
-    parser-combinators
-    process
-    text
-  ]);
+  haskellPackages = if (ghcVersion != null) then
+    haskell.packages.${ghcVersion}
+  else
+    pkgs.haskellPackages;
+
+  ghc = haskellPackages.ghcWithHoogle (h:
+    with h; [
+      containers
+      filepath
+      megaparsec
+      mtl
+      parser-combinators
+      process
+      text
+    ]);
 
 in mkShell {
-  buildInputs = [ cabal-install ghc ghcid haskell-language-server hlint ];
+  buildInputs = [
+    cabal-install
+    gdb
+    ghc
+    ghcid
+    haskell-language-server
+    hlint
+  ];
 }
