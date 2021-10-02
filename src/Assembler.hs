@@ -52,8 +52,8 @@ label name = emit $ name <> ":"
 
 globalLabel :: Text -> Emitter ()
 globalLabel name = do
-  emit $ ".globl " <> name
-  emit ".align 8"
+  emit $ "global " <> name
+  emit "align 8"
   emit $ name <> ":"
 
 jmp :: Text -> Emitter ()
@@ -71,10 +71,11 @@ compile file = do
   ir <- C.irFile file
   let (funcs, vars) = Map.partition isFunc ir
   assembly <- runEmitter do
-    emit ".data"
+    emit "section .data"
     traverse_ (uncurry asmDefinition) (Map.assocs vars)
-    emit ".text"
-    traverse_ (uncurry asmDefinition) (Map.assocs funcs)
+    emit "section .text"
+    maybe (pure ()) (asmDefinition "main") (Map.lookup "main" funcs)
+    traverse_ (uncurry asmDefinition) (Map.assocs $ Map.delete "main" funcs)
   pure $ Text.unlines assembly
   where
     isFunc IR.FunctionDefinition { } = True
@@ -84,7 +85,7 @@ asmDefinition :: Text -> IR.Definition -> Emitter ()
 asmDefinition name definition = globalLabel name >> asm definition
 
 push :: IR.Expression -> Emitter ()
-push e = asm e >> emit "pushq %rax"
+push e = asm e >> emit "push rax"
 
 -- | jumpIfNot skips to skipLabel if the condition is false.
 jumpIfNot :: IR.Expression -> Text -> Emitter ()
@@ -103,17 +104,17 @@ jumpIfNot (Binary Or lhs rhs) target = do
 jumpIfNot (Binary op lhs rhs) target = do
   asmOperands lhs rhs
   case op of
-    Eq  -> emit "cmpq %rcx, %rax" >> emit ("jne " <> target)
-    Neq -> emit "cmpq %rcx, %rax" >> emit ("je "  <> target)
-    Lt  -> emit "cmpq %rcx, %rax" >> emit ("jge " <> target)
-    Leq -> emit "cmpq %rcx, %rax" >> emit ("jg "  <> target)
-    Gt  -> emit "cmpq %rcx, %rax" >> emit ("jle " <> target)
-    Geq -> emit "cmpq %rcx, %rax" >> emit ("jl "  <> target)
-    _   -> asm op >> emit "cmpq $0, %rax" >> emit ("je " <> target)
+    Eq  -> emit "cmp rax, rcx" >> emit ("jne " <> target)
+    Neq -> emit "cmp rax, rcx" >> emit ("je "  <> target)
+    Lt  -> emit "cmp rax, rcx" >> emit ("jge " <> target)
+    Leq -> emit "cmp rax, rcx" >> emit ("jg "  <> target)
+    Gt  -> emit "cmp rax, rcx" >> emit ("jle " <> target)
+    Geq -> emit "cmp rax, rcx" >> emit ("jl "  <> target)
+    _   -> asm op >> emit "cmp rax, 0" >> emit ("je " <> target)
 
 jumpIfNot cond target = do
   asm cond
-  emit "cmpq $0, %rax"
+  emit "cmp rax, 0"
   emit $ "je " <> target
 
 jumpIf :: IR.Expression -> Text -> Emitter ()
@@ -132,17 +133,17 @@ jumpIf (Binary And lhs rhs) target = do
 jumpIf (Binary op lhs rhs) target = do
   asmOperands lhs rhs
   case op of
-    Eq  -> emit "cmpq %rcx, %rax" >> emit ("je "  <> target)
-    Neq -> emit "cmpq %rcx, %rax" >> emit ("jne " <> target)
-    Lt  -> emit "cmpq %rcx, %rax" >> emit ("jl "  <> target)
-    Leq -> emit "cmpq %rcx, %rax" >> emit ("jle " <> target)
-    Gt  -> emit "cmpq %rcx, %rax" >> emit ("jg "  <> target)
-    Geq -> emit "cmpq %rcx, %rax" >> emit ("jge " <> target)
-    _   -> asm op >> emit "cmpq $0, %rax" >> emit ("jne " <> target)
+    Eq  -> emit "cmp rax, rcx" >> emit ("je "  <> target)
+    Neq -> emit "cmp rax, rcx" >> emit ("jne " <> target)
+    Lt  -> emit "cmp rax, rcx" >> emit ("jl "  <> target)
+    Leq -> emit "cmp rax, rcx" >> emit ("jle " <> target)
+    Gt  -> emit "cmp rax, rcx" >> emit ("jg "  <> target)
+    Geq -> emit "cmp rax, rcx" >> emit ("jge " <> target)
+    _   -> asm op >> emit "cmp rax, 0" >> emit ("jne " <> target)
 
 jumpIf cond target = do
   asm cond
-  emit "cmpq $0, %rax"
+  emit "cmp rax, 0"
   emit $ "jne " <> target
 
 class Asm a where
@@ -153,38 +154,38 @@ instance Asm a => Asm [a] where
 
 instance Asm IR.Definition where
   asm (IR.FunctionDefinition _returnType locals body) = do
-    emit "pushq %rbp"
-    emit "movq %rsp, %rbp"
-    unless (locals == 0) $ emit $ "subq $" <> tshow locals <> ", %rsp"
+    emit "push rbp"
+    emit "mov rbp, rsp"
+    unless (locals == 0) $ emit $ "sub rsp, " <> tshow locals
     asm body
 
   asm (IR.GlobalDefinition IR.Int (IR.Int64 i)) = do
-    emit $ ".long " <> tshow i
+    emit $ "dq " <> tshow i
 
   asm (IR.GlobalDefinition IR.Function{} _) = error "bad GlobalDefinition Function"
 
 instance Asm IR.Expression where
   asm (Assignment (IR.BPOffset var) value) = do
     asm value
-    emit $ "movq %rax, " <> tshow var <> "(%rbp)"
+    emit $ "mov [rbp+" <> tshow var <> "], rax"
 
   asm (Assignment (IR.SPOffset var) value) = do
     asm value
-    emit $ "movq %rax, -" <> tshow var <> "(%rsp)"
+    emit $ "mov [rsp+" <> tshow var <> "], rax"
 
   asm (Assignment (IR.Label name IR.Function { }) _) =
     throwError $ "cannot assign to function " <> tshow name
 
   asm (Assignment (IR.Label name _typ) value) = do
     asm value
-    emit $ "movq %rax, " <> name
+    emit $ "mov [" <> name <> "], rax"
 
   asm (Call (Variable (IR.Label f (IR.Function _ret params))) args) = do
     unless (length args == length params) $ throwError $
       "expected " <> tshow (length params) <> " arguments but got " <> tshow (length args)
     traverse_ push $ reverse args
     emit $ "call " <> f
-    unless (null args) $ emit $ "add $" <> tshow (8 * length args) <> ", %rsp"
+    unless (null args) $ emit $ "add rsp, " <> tshow (8 * length args)
 
   asm (Call (Variable (IR.Label f _)) _)
     = throwError $ "cannot call " <> tshow f <> " because it's not a function"
@@ -192,31 +193,31 @@ instance Asm IR.Expression where
   asm (Call _ _) = error "only direct calls are supported so far"
 
   asm (Variable var) = asm var
-  asm (Literal (C.Integer 0)) = emit "xorq %rax, %rax"
-  asm (Literal (C.Integer i)) = emit $ "movq $" <> tshow i <> ", %rax"
+  asm (Literal (C.Integer 0)) = emit "xor rax, rax"
+  asm (Literal (C.Integer i)) = emit $ "mov rax, " <> tshow i
   asm (Unary op e) = asm e >> asm op
   asm (Binary Com l r) = asm l >> asm r
   asm (Binary And l r) = do
     end <- newLabel "endand"
     asm l
-    emit "cmpq $0, %rax"
+    emit "cmp rax, 0"
     emit $ "je " <> end
     asm r
-    emit "cmpq $0, %rax"
-    emit "movq $0, %rax"
-    emit "setne %al"
+    emit "cmp rax, 0"
+    emit "mov rax, 0"
+    emit "setne al"
     label end
 
   asm (Binary Or l r) = do
     end <- newLabel "endor"
     asm l
-    emit "cmpq $0, %rax"
+    emit "cmp rax, 0"
     emit $ "jne " <> end
     asm r
-    emit "cmpq $0, %rax"
+    emit "cmp rax, 0"
     label end
-    emit "movq $0, %rax"
-    emit "setne %al"
+    emit "mov rax, 0"
+    emit "setne al"
 
   asm (Ternary cond t f) = do
     fLabel <- newLabel "elseternary"
@@ -234,58 +235,58 @@ instance Asm IR.Expression where
 asmOperands :: IR.Expression -> IR.Expression -> Emitter ()
 asmOperands l r = case (unaryAsm "rax" l, unaryAsm "rcx" r) of
   (_, Just rasm) -> asm l >> rasm
-  (Just lasm, _) -> asm r >> emit "movq %rax, %rcx" >> lasm
-  (Nothing, Nothing) -> push r >> asm l >> emit "popq %rcx"
+  (Just lasm, _) -> asm r >> emit "mov rcx, rax" >> lasm
+  (Nothing, Nothing) -> push r >> asm l >> emit "pop rcx"
 
   where
     unaryAsm :: Text -> Expression id -> Maybe (Emitter ())
     unaryAsm reg (Literal (C.Integer i)) = Just $ do
-      emit $ "movq $" <> tshow i <> ", %" <> reg
+      emit $ "mov " <> reg <> ", " <> tshow i
 
     unaryAsm reg (Unary Neg e) = do
       a <- unaryAsm reg e
       Just $ do
         a
-        emit $ "neg %" <> reg
+        emit $ "neg " <> reg
 
     unaryAsm reg (Unary Inv e) = do
       a <- unaryAsm reg e
       Just $ do
         a
-        emit $ "not %" <> reg
+        emit $ "not " <> reg
 
     unaryAsm _reg _ = Nothing
 
 instance Asm Unary where
-  asm Neg = emit "neg %rax"
-  asm Inv = emit "not %rax"
+  asm Neg = emit "neg rax"
+  asm Inv = emit "not rax"
   asm Not = do
-    emit "cmpq $0, %rax"
-    emit "movq $0, %rax"
-    emit "sete %al"
+    emit "cmp rax, 0"
+    emit "mov rax, 0"
+    emit "sete al"
 
 compareAsm :: Emitter ()
-compareAsm = emit "cmpq %rcx, %rax" >> emit "movq $0, %rax"
+compareAsm = emit "cmp rax, rcx" >> emit "mov rax, 0"
 
 -- lhs in rax, rhs in rcx, out in rax
 instance Asm Binary where
-  asm Div = emit "cqo" >> emit "idivq %rcx"
-  asm Mul = emit "imul %rcx"
-  asm Add = emit "add %rcx, %rax"
-  asm Sub = emit "sub %rcx, %rax"
-  asm Mod = emit "cqo" >> emit "idivq %rcx" >> emit "movq %rdx, %rax"
-  asm Eq  = compareAsm >> emit "sete %al"
-  asm Neq = compareAsm >> emit "setne %al"
-  asm Lt  = compareAsm >> emit "setl %al"
-  asm Leq = compareAsm >> emit "setle %al"
-  asm Gt  = compareAsm >> emit "setg %al"
-  asm Geq = compareAsm >> emit "setge %al"
+  asm Div = emit "cqo" >> emit "idiv rcx"
+  asm Mul = emit "imul rcx"
+  asm Add = emit "add rax, rcx"
+  asm Sub = emit "sub rax, rcx"
+  asm Mod = emit "cqo" >> emit "idiv rcx" >> emit "mov rax, rdx"
+  asm Eq  = compareAsm >> emit "sete al"
+  asm Neq = compareAsm >> emit "setne al"
+  asm Lt  = compareAsm >> emit "setl al"
+  asm Leq = compareAsm >> emit "setle al"
+  asm Gt  = compareAsm >> emit "setg al"
+  asm Geq = compareAsm >> emit "setge al"
   asm op = error $ "operator not yet implemented: " <> show op
 
 instance Asm IR.Reference where
-  asm (IR.BPOffset i) = emit $ "movq " <> tshow i <> "(%rbp), %rax"
-  asm (IR.Label l _) = emit $ "movq " <> l <> ", %rax"
-  asm (IR.SPOffset i) = emit $ "movq -" <> tshow i <> "(%rsp), %rax"
+  asm (IR.BPOffset i) = emit $ "mov rax, [rbp+" <> tshow i <> "]"
+  asm (IR.Label l _) = emit $ "mov rax, [" <> l <> "]"
+  asm (IR.SPOffset i) = emit $ "mov rax, [rsp+" <> tshow i <> "]"
 
 instance Asm IR.Statement where
   asm (IR.Expression e) = asm e
@@ -293,8 +294,8 @@ instance Asm IR.Statement where
   asm IR.Continue = gets eContinue >>= maybe (throwError "continue outside loop") jmp
   asm (IR.Return e) = do
     asm e
-    emit "movq %rbp, %rsp"
-    emit "popq %rbp"
+    emit "mov rsp, rbp"
+    emit "pop rbp"
     emit "ret"
 
   asm (IR.If cond tBlock []) = do

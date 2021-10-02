@@ -27,5 +27,10 @@ in mkShell {
     ghcid
     haskell-language-server
     hlint
+    mold
+    nasm
   ];
+
+  LD = "${mold}/bin/mold";
+  LIBC = glibc;
 }
