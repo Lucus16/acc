@@ -1,7 +1,5 @@
-{-# LANGUAGE BlockArguments             #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE NamedFieldPuns             #-}
-{-# LANGUAGE OverloadedStrings          #-}
 
 module IR where
 
@@ -11,7 +9,7 @@ import Control.Monad.State (StateT, execStateT, get, gets, modify, put)
 import Data.Foldable (for_)
 import Data.Int (Int64)
 import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 
 import qualified Expr

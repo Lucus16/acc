@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Parser where
 
 import Prelude hiding (init, product, sum)
@@ -11,12 +9,12 @@ import Data.Function ((&))
 import Data.Functor (void)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
-import qualified Data.Text as Text
+import Data.Text qualified as Text
 import Data.Void (Void)
 import Text.Megaparsec
   (Parsec, ParsecT, Stream, Token, Tokens, between, chunk, eof, many,
   notFollowedBy, satisfy, sepBy, takeWhile1P, takeWhileP, try)
-import qualified Text.Megaparsec.Char.Lexer as L (decimal, lexeme, symbol)
+import Text.Megaparsec.Char.Lexer qualified as L (decimal, lexeme, symbol)
 
 import C
 

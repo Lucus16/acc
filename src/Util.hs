@@ -1,12 +1,10 @@
-{-# LANGUAGE FlexibleInstances #-}
-
 module Util
   ( Error
   , tshow
   ) where
 
 import Data.Text (Text)
-import qualified Data.Text as Text
+import Data.Text qualified as Text
 --import Text.Megaparsec (SourcePos)
 
 type Error = Text

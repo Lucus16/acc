@@ -1,10 +1,9 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Main where
 
 import Control.Monad (unless)
-import qualified Data.Text.IO as TextIO
-import System.Environment (getArgs, getEnv)
+import Data.Maybe (fromMaybe)
+import Data.Text.IO qualified as TextIO
+import System.Environment (getArgs, getEnv, lookupEnv)
 import System.Exit (ExitCode(..), exitWith)
 import System.FilePath.Posix (dropExtension, replaceExtension)
 import System.Process
@@ -26,6 +25,7 @@ main :: IO ()
 main = do
   args <- getArgs
   libc <- getEnv "LIBC"
+  ld <- fromMaybe "ld" <$> lookupEnv "LD"
   let path = head args
   program <- TextIO.readFile path
 
@@ -44,7 +44,7 @@ main = do
       binPath = dropExtension path
   TextIO.writeFile asmPath asm
   exitOnFailure $ cmd "nasm" ["-f", "elf64", "-gdwarf", asmPath, "-o", objPath]
-  exitOnFailure $ cmd "ld"
+  exitOnFailure $ cmd ld
     [ "-o", binPath
     , "-dynamic-linker", libc <> "/lib/ld-linux-x86-64.so.2"
     , libc <> "/lib/crt1.o"

@@ -1,6 +1,4 @@
-{-# LANGUAGE BlockArguments    #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE OverloadedStrings #-}
 
 module Assembler
   ( compile
@@ -10,9 +8,9 @@ import Control.Monad (unless)
 import Control.Monad.Except (throwError)
 import Control.Monad.State (StateT, execStateT, gets, modify)
 import Data.Foldable (traverse_)
-import qualified Data.Map as Map
+import Data.Map qualified as Map
 import Data.Text (Text)
-import qualified Data.Text as Text
+import Data.Text qualified as Text
 
 import qualified C
 import Expr (Binary(..), Expression(..), Unary(..))

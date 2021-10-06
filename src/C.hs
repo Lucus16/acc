@@ -1,6 +1,3 @@
-{-# LANGUAGE BlockArguments    #-}
-{-# LANGUAGE OverloadedStrings #-}
-
 module C
   ( module C
   , module Expr
