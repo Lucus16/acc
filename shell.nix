@@ -1,10 +1,8 @@
-{ ghcVersion ? "ghc901", pkgs ? import <nixpkgs> { } }:
-
-with pkgs;
+{ ghcVersion ? null, pkgs ? import <nixpkgs> { } }:
 
 let
   haskellPackages = if (ghcVersion != null) then
-    haskell.packages.${ghcVersion}
+    pkgs.haskell.packages.${ghcVersion}
   else
     pkgs.haskellPackages;
 
@@ -19,18 +17,16 @@ let
       text
     ]);
 
-in mkShell {
-  buildInputs = [
+in pkgs.mkShell {
+  buildInputs = with pkgs; [
     cabal-install
     gdb
     ghc
-    ghcid
-    haskell-language-server
+    haskellPackages.haskell-language-server
     hlint
-    mold
     nasm
+    stylish-haskell
   ];
 
-  LD = "${mold}/bin/mold";
-  LIBC = glibc;
+  LIBC = pkgs.glibc;
 }
