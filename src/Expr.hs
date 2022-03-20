@@ -1,5 +1,3 @@
-{-# LANGUAGE DeriveTraversable #-}
-
 -- | Generic expressions.
 module Expr where
 

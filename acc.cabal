@@ -31,5 +31,6 @@ executable acc
 
   default-extensions:
     BlockArguments
+    DeriveTraversable
     ImportQualifiedPost
     OverloadedStrings
