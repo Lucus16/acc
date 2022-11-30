@@ -39,7 +39,7 @@ build Simple{code, rodata} = BSB.toLazyByteString $ Binary.execWriter mdo
   Binary.word16 0x40 -- elf header size
   Binary.word16 0x38 -- program header size
   Binary.word16 programHeaderCount -- program header count
-  Binary.word16 0x28 -- section header size
+  Binary.word16 0x40 -- section header size
   Binary.word16 sectionHeaderCount -- section header count
   Binary.word16 namesSectionIndex -- index of the names section in the section header table
 
@@ -53,6 +53,10 @@ build Simple{code, rodata} = BSB.toLazyByteString $ Binary.execWriter mdo
   Binary.word64 0 -- address, unused
   Binary.word64 namesSectionOffset
   Binary.word64 namesSectionSize
+  Binary.word32 0 -- associated section index
+  Binary.word32 0 -- extra section info
+  Binary.word64 0 -- required section alignment
+  Binary.word64 0 -- entry size if entries are fixed-size
   -- code section header
   Binary.word32 codeNameOffset
   Binary.word32 1 -- section header type: program
@@ -60,6 +64,10 @@ build Simple{code, rodata} = BSB.toLazyByteString $ Binary.execWriter mdo
   Binary.word64 $ toVirtual codeSectionOffset
   Binary.word64 codeSectionOffset
   Binary.word64 codeSectionSize
+  Binary.word32 0 -- associated section index
+  Binary.word32 0 -- extra section info
+  Binary.word64 0 -- required section alignment
+  Binary.word64 0 -- entry size if entries are fixed-size
   -- rodata section header
   Binary.word32 rodataNameOffset
   Binary.word32 1 -- section header type: program
@@ -67,6 +75,10 @@ build Simple{code, rodata} = BSB.toLazyByteString $ Binary.execWriter mdo
   Binary.word64 $ toVirtual rodataSectionOffset
   Binary.word64 rodataSectionOffset
   Binary.word64 rodataSectionSize
+  Binary.word32 0 -- associated section index
+  Binary.word32 0 -- extra section info
+  Binary.word64 0 -- required section alignment
+  Binary.word64 0 -- entry size if entries are fixed-size
   let sectionHeaderCount = 3
 
   -- segment header table
