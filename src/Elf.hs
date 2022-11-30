@@ -95,12 +95,12 @@ build Simple{code, rodata} = BSB.toLazyByteString $ Binary.execWriter mdo
 
   -- names section
   namesSectionOffset <- Binary.getOffset
-  Binary.cString ".shstrtab"
   namesNameOffset <- fromIntegral . subtract namesSectionOffset <$> Binary.getOffset
-  Binary.cString ".text"
+  Binary.cString ".shstrtab"
   codeNameOffset <- fromIntegral . subtract namesSectionOffset <$> Binary.getOffset
-  Binary.cString ".rodata"
+  Binary.cString ".text"
   rodataNameOffset <- fromIntegral . subtract namesSectionOffset <$> Binary.getOffset
+  Binary.cString ".rodata"
   namesSectionSize <- subtract namesSectionOffset <$> Binary.getOffset
 
   Binary.alignTo alignment
