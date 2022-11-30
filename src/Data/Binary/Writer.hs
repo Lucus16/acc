@@ -65,7 +65,10 @@ instance Monad m => Monad (WriterT m) where
     pure (r, offset'', w <> w')
 
 instance MonadFix m => MonadFix (WriterT m) where
-  mfix f = WriterT $ \offset -> mfix $ \(a, _, _) -> runWriterT (f a) offset
+  mfix f = WriterT $ \offset -> mfix $ \x -> runWriterT (f (f1of3 x)) offset
+
+f1of3 :: (a, b, c) -> a
+f1of3 (a, _, _) = a
 
 type Writer = WriterT Identity
 
