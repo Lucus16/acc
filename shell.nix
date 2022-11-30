@@ -15,6 +15,7 @@ let
       parser-combinators
       process
       text
+      utf8-string
     ]);
 
 in pkgs.mkShell {
