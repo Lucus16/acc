@@ -130,5 +130,5 @@ alignTo align
   | align < 2 = pure ()
   | otherwise = do
       offset <- getOffset
-      let padding = ((offset + align - 1) `div` align) * align
+      let padding = (((offset + align - 1) `div` align) * align) - offset
       byteString (BS.replicate (fromIntegral padding) 0)
