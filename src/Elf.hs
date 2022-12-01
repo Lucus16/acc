@@ -9,6 +9,7 @@ import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Builder qualified as BSB
 import Data.Word (Word64)
 
+-- alignment equal to size of memory page on M1
 alignment :: Word64
 alignment = 0x4000
 
@@ -86,12 +87,12 @@ build Simple{code, rodata} = BSB.toLazyByteString $ Binary.execWriter mdo
   let programHeaderCount = 1
   Binary.word32 1 -- segment type load
   Binary.word32 5 -- permission flags: readable | executable
-  Binary.word64 0 -- offset
+  Binary.word64 mainSegmentOffset -- offset
   Binary.word64 virtualMemoryOffset -- location in virtual address space to write this segment to
   Binary.word64 0 -- unused for System V ABI, physical address space location otherwise
   Binary.word64 mainSegmentSize -- number of bytes to copy
   Binary.word64 mainSegmentSize -- number of bytes to clear before copying
-  Binary.word64 alignment -- alignment equal to size of memory page on M1
+  Binary.word64 alignment
 
   -- names section
   namesSectionOffset <- Binary.getOffset
@@ -103,6 +104,8 @@ build Simple{code, rodata} = BSB.toLazyByteString $ Binary.execWriter mdo
   Binary.cString ".rodata"
   namesSectionSize <- subtract namesSectionOffset <$> Binary.getOffset
 
+  -- Make sure the data that needs to be mapped at runtime is aligned with the
+  -- page boundaries so they don't need to be copied.
   Binary.alignTo alignment
   -- main segment sections
   mainSegmentOffset <- Binary.getOffset
