@@ -99,7 +99,11 @@ irTopLevel (FunctionDeclaration returnType name params) = do
 irTopLevel (FunctionDefinition returnType name params body) = do
   returnType' <- irType returnType
   params' <- traverse irParameter params
-  IR.defineFunction name returnType' params' (concat <$> traverse irStatement body)
+  IR.defineFunction name returnType' params' $ concat <$> traverse irStatement body'
+  where
+    body'
+      | name == "main" = body <> [Return (Literal (Integer 0))]
+      | otherwise      = body
 
 irTopLevel (GlobalDeclaration typ name) = do
   typ' <- irType typ

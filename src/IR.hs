@@ -1,5 +1,4 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE NamedFieldPuns             #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 module IR where
 
