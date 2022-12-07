@@ -77,6 +77,7 @@ mainX64 = do
   exitOnFailure $ cmd "nasm" ["-f", "elf64", "-gdwarf", asmPath, "-o", objPath]
   exitOnFailure $ cmd ld
     [ "-o", binPath
+    , "-L" <> libc <> "/lib"
     , "-dynamic-linker", libc <> "/lib/ld-linux-x86-64.so.2"
     , libc <> "/lib/crt1.o"
     , libc <> "/lib/crti.o"
