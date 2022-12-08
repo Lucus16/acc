@@ -296,11 +296,19 @@ instance Asm IR.Statement where
     emit "pop rbp"
     emit "ret"
 
+  asm (IR.If cond [IR.Break] []) =
+    gets eBreak >>= maybe (throwError "break outside loop") (jumpIf cond)
+
+  asm (IR.If cond [IR.Continue] []) =
+    gets eContinue >>= maybe (throwError "continue outside loop") (jumpIf cond)
+
   asm (IR.If cond tBlock []) = do
     end <- newLabel "endif"
     jumpIfNot cond end
     asm tBlock
     label end
+
+  asm (IR.If cond [] fBlock) = asm (IR.If (Unary Not cond) fBlock [])
 
   asm (IR.If cond tBlock fBlock) = do
     fLabel <- newLabel "else"
