@@ -24,6 +24,10 @@ library
     , utf8-string
 
   exposed-modules:
+    Arch.Aarch64
+    Arch.Amd64
+    Arch.Class
+    Arch.Cpu16
     Aarch64
     Assembler
     C
