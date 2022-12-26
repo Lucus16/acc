@@ -39,6 +39,7 @@ library
     Fold
     IR
     Parser
+    ResolveOffsets
     Util
     Types
 
