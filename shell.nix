@@ -1,4 +1,4 @@
-{ ghcVersion ? null, pkgs ? import <nixpkgs> { } }:
+{ ghcVersion ? "ghc92", pkgs ? import <nixpkgs> { } }:
 
 let
   haskellPackages = if (ghcVersion != null) then
