@@ -25,6 +25,9 @@ data Register
   | X24 | X25 | X26 | X27 | X28 | X29 | X30 | X31
   deriving (Enum)
 
+fromReg :: Register -> Word32
+fromReg = fromIntegral . fromEnum
+
 data EmitState = EmitState
   { eLabelNum :: Int
   , eInstructions :: [Word32]
@@ -46,6 +49,10 @@ runEmitter emitter = reverse . eInstructions <$> execStateT emitter initialEmitS
 
 emit :: Word32 -> Emitter ()
 emit instruction = modify $ \s -> s { eInstructions = instruction : eInstructions s }
+
+-- Because aarch64 requires the stack pointer to be aligned to 16 bytes when
+-- calling functions, using push and pop instructions is unwieldy. Instead, I
+-- should preallocate enough temporary stack space to compute any expression.
 
 --newLabel :: Text -> Emitter Text
 --newLabel name = do
@@ -102,3 +109,49 @@ compile file = do
   where
     isFunc IR.FunctionDefinition { } = True
     isFunc _ = False
+
+-- | asmOperands places the lhs in rax and the rhs in rcx.
+--asmOperands :: IR.Expression -> IR.Expression -> Emitter ()
+--asmOperands l r = case (unaryAsm "rax" l, unaryAsm "rcx" r) of
+--  (_, Just rasm) -> asm l >> rasm
+--  (Just lasm, _) -> asm r >> emit "mov rcx, rax" >> lasm
+--  (Nothing, Nothing) -> push r >> asm l >> emit "pop rcx"
+
+literalAsm :: Register -> C.Literal -> Emitter ()
+literalAsm reg (C.Integer value) = go False 0
+  where
+    partValue :: Int -> Word32
+    partValue part = fromInteger $ shiftR value (16 * part) .&. 0xffff
+
+    go :: Bool -> Int -> Emitter ()
+    go False 4 = mov False 0
+    go True  4 = pure ()
+    go initialized part
+      | partValue part == 0 = go initialized (succ part)
+      | otherwise = mov initialized part >> go True (succ part)
+
+    mov :: Bool -> Int -> Emitter ()
+    mov keep part = emit $ 0xd2800000
+      .|. shiftL (fromIntegral $ fromEnum keep) 29
+      .|. fromIntegral (shiftL part 21)
+      .|. shiftL (partValue part) 5
+      .|. fromReg reg
+
+-- Emit instructions to compute the expression using only the single given
+-- register if possible.
+unaryAsm :: Register -> Expression id -> Maybe (Emitter ())
+unaryAsm reg (Literal lit) = Just $ literalAsm reg lit
+
+unaryAsm reg (Unary Neg e) = do
+  a <- unaryAsm reg e
+  Just do
+    a
+    emit $ 0xcb0003e0 .|. fromReg reg .|. (fromReg reg `shiftL` 16)
+
+unaryAsm reg (Unary Inv e) = do
+  a <- unaryAsm reg e
+  Just do
+    a
+    emit $ 0xaa2003e0 .|. fromReg reg .|. (fromReg reg `shiftL` 16)
+
+unaryAsm _reg _ = Nothing
