@@ -1,6 +1,6 @@
 module Main where
 
-import "acc" Main qualified as M
+import Acc
 
 main :: IO ()
-main = M.main
+main = Acc.main

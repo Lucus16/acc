@@ -1,4 +1,4 @@
-module Main where
+module Acc where
 
 import Control.Monad (unless)
 import Data.Maybe (fromMaybe)

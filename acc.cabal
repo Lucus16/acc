@@ -24,6 +24,7 @@ library
     , utf8-string
 
   exposed-modules:
+    Acc
     Arch.Aarch64
     Arch.Amd64
     Arch.Class
@@ -36,7 +37,6 @@ library
     Expr
     Fold
     IR
-    Main
     Parser
     Util
 
@@ -50,11 +50,4 @@ executable acc
   main-is:               Main.hs
   hs-source-dirs:        main
   default-language:      Haskell2010
-  ghc-options:           -Wall
-  build-depends:
-      acc
-    , base
-
-  default-extensions:
-    ImportQualifiedPost
-    PackageImports
+  build-depends:         acc, base
