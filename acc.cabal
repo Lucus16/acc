@@ -21,6 +21,7 @@ library
     , parser-combinators
     , process
     , text
+    , transformers
     , utf8-string
 
   exposed-modules:

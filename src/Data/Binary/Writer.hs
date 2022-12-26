@@ -1,8 +1,12 @@
 -- This module defines a lazy binary writer monad where values can depend on
 -- offsets ahead of the data being written using recursive do notation.
 
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+
 module Data.Binary.Writer
-  ( WriterT(..)
+  ( Tree(..)
+  , WriterT(..)
   , Writer
   , execWriterT
   , execWriter
@@ -10,17 +14,24 @@ module Data.Binary.Writer
   , getOffset
   , getSize
   , sub
+  , getChunk
   , word8
   , word16
   , word32
   , word64
+  , int8
+  , int16
+  , int32
+  , int64
   , string
   , cString
   , byteString
   , lazyByteString
+  , zeroes
   ) where
 
 import Control.Monad.Fix (MonadFix, mfix)
+import Control.Monad.Trans.Class (MonadTrans(..))
 import Data.Binary qualified as Binary
 import Data.Binary.Put qualified as Binary
 import Data.ByteString qualified as BS
@@ -30,23 +41,24 @@ import Data.ByteString.Lazy qualified as BSL
 import Data.Functor ((<&>))
 import Data.Functor.Identity (Identity, runIdentity)
 import Data.Word (Word8, Word16, Word32, Word64)
+import Data.Int (Int8, Int16, Int32, Int64)
 import Data.ByteString.Lazy.UTF8 as BSLU
 
 -- We need to aggregate chunk completely lazily, otherwise we might introduce an
 -- unnecessary circular dependency.
-data BinaryTree = Chunk BSL.ByteString | Node BinaryTree BinaryTree
+data Tree = Chunk BSL.ByteString | Node Tree Tree
 
-instance Semigroup BinaryTree where
+instance Semigroup Tree where
   (<>) = Node
 
-instance Monoid BinaryTree where
+instance Monoid Tree where
   mempty = Chunk ""
 
-binaryTreeToBuilder :: BinaryTree -> Builder
-binaryTreeToBuilder (Chunk bs) = BSB.lazyByteString bs
-binaryTreeToBuilder (Node l r) = binaryTreeToBuilder l <> binaryTreeToBuilder r
+treeToBuilder :: Tree -> Builder
+treeToBuilder (Chunk bs) = BSB.lazyByteString bs
+treeToBuilder (Node l r) = treeToBuilder l <> treeToBuilder r
 
-data WriterT m a = WriterT { runWriterT :: Word64 -> m (a, Word64, BinaryTree) }
+data WriterT m a = WriterT { runWriterT :: Word64 -> m (a, Word64, Tree) }
 
 instance Functor m => Functor (WriterT m) where
   fmap f m = WriterT $ fmap (\(a, o, w) -> (f a, o, w)) . runWriterT m
@@ -67,6 +79,11 @@ instance Monad m => Monad (WriterT m) where
 instance MonadFix m => MonadFix (WriterT m) where
   mfix f = WriterT $ \offset -> mfix $ \x -> runWriterT (f (f1of3 x)) offset
 
+instance MonadTrans WriterT where
+  lift m = WriterT $ \offset -> do
+    a <- m
+    return (a, offset, mempty)
+
 f1of3 :: (a, b, c) -> a
 f1of3 (a, _, _) = a
 
@@ -74,7 +91,7 @@ type Writer = WriterT Identity
 
 execWriterT :: Functor m => WriterT m a -> m Builder
 execWriterT writerT = runWriterT writerT 0 <&>
-  (\(_, _, w) -> binaryTreeToBuilder w)
+  (\(_, _, w) -> treeToBuilder w)
 
 execWriter :: Writer a -> Builder
 execWriter = runIdentity . execWriterT
@@ -94,6 +111,18 @@ word32 = binary 4 Binary.putWord32le
 word64 :: Applicative m => Word64 -> WriterT m ()
 word64 = binary 8 Binary.putWord64le
 
+int8 :: Applicative m => Int8 -> WriterT m ()
+int8 = binary 1 Binary.putInt8
+
+int16 :: Applicative m => Int16 -> WriterT m ()
+int16 = binary 2 Binary.putInt16le
+
+int32 :: Applicative m => Int32 -> WriterT m ()
+int32 = binary 4 Binary.putInt32le
+
+int64 :: Applicative m => Int64 -> WriterT m ()
+int64 = binary 8 Binary.putInt64le
+
 string :: Applicative m => String -> WriterT m ()
 string = lazyByteString . BSLU.fromString
 
@@ -106,6 +135,9 @@ byteString = lazyByteString . BSL.fromStrict
 lazyByteString :: Applicative m => BSL.ByteString -> WriterT m ()
 lazyByteString bs = WriterT \offset -> pure ((), offset + fromIntegral (BSL.length bs), Chunk bs)
 
+zeroes :: Applicative m => Word64 -> WriterT m ()
+zeroes count = lazyByteString $ BSL.replicate (fromIntegral count) 0
+
 getOffset :: Applicative m => WriterT m Word64
 getOffset = WriterT \offset -> pure (offset, offset, mempty)
 
@@ -113,6 +145,13 @@ getSize :: Monad m => WriterT m () -> WriterT m Word64
 getSize m = WriterT \offset -> do
   ((), offset', w) <- runWriterT m offset
   pure (offset' - offset, offset', w)
+
+-- Embed data in an outer WriterT and receive the offset, size and data as
+-- result.
+getChunk :: Monad m => WriterT m () -> WriterT m (Word64, Word64, Tree)
+getChunk inner = WriterT \offset -> do
+  ((), offset', innerData) <- runWriterT inner offset
+  pure ((offset, offset' - offset, innerData), offset', innerData)
 
 withOffset :: Monad m => Word64 -> WriterT m a -> WriterT m a
 withOffset initialOffset inner = WriterT \outerOffset -> do
