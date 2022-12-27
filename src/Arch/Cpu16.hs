@@ -18,11 +18,7 @@ import Types
 import Util
 
 data Cpu16 = Cpu16
-
-data Reg
-  = R0 | R1 | R2 | R3 | R4 | R5 | R6 | R7
-  | R8 | R9 | R10 | R11 | R12 | R13 | R14 | R15
-  deriving (Enum)
+type Reg = Register Cpu16
 
 fromReg :: Reg -> Word16
 fromReg = fromIntegral . fromEnum
@@ -30,7 +26,10 @@ fromReg = fromIntegral . fromEnum
 instance Arch Cpu16 where
   type Pointer Cpu16 = Word16
   type AddressableUnit Cpu16 = Word16
-  type Register Cpu16 = Reg
+  data Register Cpu16
+    = R0 | R1 | R2 | R3 | R4 | R5 | R6 | R7
+    | R8 | R9 | R10 | R11 | R12 | R13 | R14 | R15
+    deriving (Enum)
 
 type Emitter = WriterT [Word16] Resolver
 
