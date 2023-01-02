@@ -6,23 +6,18 @@ import Control.Monad (when)
 import Control.Monad.Except (throwError)
 import Control.Monad.State (StateT, execStateT, get, gets, modify, put)
 import Data.Foldable (for_)
-import Data.Int (Int64)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 
-import qualified Expr
+import Expr qualified
+import Types (Type(..), Literal(..))
 import Util
 
 type Block = [Statement]
 type Expression = Expr.Expression Reference
 type Identifier = Text
 type StackUsage = Int
-
-data Type
-  = Int
-  | Function Type [Type]
-  deriving (Eq, Show)
 
 data IterationCount
   = ZeroOrMore
@@ -39,13 +34,9 @@ data Statement
   | Loop IterationCount Expression Block Block
   deriving (Show)
 
-data Value
-  = Int64 Int64
-  deriving (Eq, Show)
-
 data Definition
   = FunctionDefinition Type StackUsage Block
-  | GlobalDefinition Type Value
+  | GlobalDefinition Type Literal
   deriving (Show)
 
 -- | Things referred to by an identifier.
@@ -143,10 +134,11 @@ evalBuilder b = bDefinitions <$> execStateT b initialBuilderState
 
 defaultGlobals :: IR.Builder ()
 defaultGlobals = do
-  let zero = GlobalDefinition Int (Int64 0)
+  let zero = GlobalDefinition Int (Integer 0)
   vars <- gets $ Map.filter isVar . bGlobals
   modify $ \s -> s { bDefinitions = bDefinitions s `Map.union` fmap (const zero) vars }
   where
+    isVar :: Reference -> Bool
     isVar (Label _ Function { }) = False
     isVar (Label _ _)            = True
     isVar _                      = False
@@ -160,7 +152,7 @@ declareGlobal name typ = do
     Nothing -> modify $ \s -> s
       { bGlobals = Map.insert name (Label name typ) bGlobals }
 
-defineGlobal :: Identifier -> Type -> Value -> IR.Builder ()
+defineGlobal :: Identifier -> Type -> Literal -> IR.Builder ()
 defineGlobal name typ value = do
   declareGlobal name typ
   BuilderState { bDefinitions } <- get

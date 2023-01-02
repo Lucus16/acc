@@ -16,6 +16,7 @@ import qualified C
 import Expr (Binary(..), Expression(..), Unary(..))
 import qualified IR
 import Util (Error, tshow)
+import Types (Literal(..), Type(..))
 
 data EmitState = EmitState
   { eLabelNum :: Int
@@ -157,10 +158,18 @@ instance Asm IR.Definition where
     unless (locals == 0) $ emit $ "sub rsp, " <> tshow locals
     asm body
 
-  asm (IR.GlobalDefinition IR.Int (IR.Int64 i)) = do
-    emit $ "dq " <> tshow i
+  asm (IR.GlobalDefinition Int (Integer i))    = emit $ "dq " <> tshow i
+  asm (IR.GlobalDefinition Int8 (Integer i))   = emit $ "db " <> tshow i
+  asm (IR.GlobalDefinition Int16 (Integer i))  = emit $ "dw " <> tshow i
+  asm (IR.GlobalDefinition Int32 (Integer i))  = emit $ "dd " <> tshow i
+  asm (IR.GlobalDefinition Int64 (Integer i))  = emit $ "dq " <> tshow i
+  asm (IR.GlobalDefinition Word (Integer i))   = emit $ "dq " <> tshow i
+  asm (IR.GlobalDefinition Word8 (Integer i))  = emit $ "db " <> tshow i
+  asm (IR.GlobalDefinition Word16 (Integer i)) = emit $ "dw " <> tshow i
+  asm (IR.GlobalDefinition Word32 (Integer i)) = emit $ "dd " <> tshow i
+  asm (IR.GlobalDefinition Word64 (Integer i)) = emit $ "dq " <> tshow i
 
-  asm (IR.GlobalDefinition IR.Function{} _) = error "bad GlobalDefinition Function"
+  asm (IR.GlobalDefinition Function{ } _) = error "bad GlobalDefinition Function"
 
 instance Asm IR.Expression where
   asm (Assignment (IR.BPOffset var) value) = do
@@ -171,14 +180,14 @@ instance Asm IR.Expression where
     asm value
     emit $ "mov [rsp+" <> tshow var <> "], rax"
 
-  asm (Assignment (IR.Label name IR.Function { }) _) =
+  asm (Assignment (IR.Label name Function{ }) _) =
     throwError $ "cannot assign to function " <> tshow name
 
   asm (Assignment (IR.Label name _typ) value) = do
     asm value
     emit $ "mov [" <> name <> "], rax"
 
-  asm (Call (Variable (IR.Label f (IR.Function _ret params))) args) = do
+  asm (Call (Variable (IR.Label f (Function _ret params))) args) = do
     unless (length args == length params) $ throwError $
       "expected " <> tshow (length params) <> " arguments but got " <> tshow (length args)
     traverse_ push $ reverse args
@@ -191,8 +200,8 @@ instance Asm IR.Expression where
   asm (Call _ _) = error "only direct calls are supported so far"
 
   asm (Variable var) = asm var
-  asm (Literal (C.Integer 0)) = emit "xor rax, rax"
-  asm (Literal (C.Integer i)) = emit $ "mov rax, " <> tshow i
+  asm (Literal (Integer 0)) = emit "xor rax, rax"
+  asm (Literal (Integer i)) = emit $ "mov rax, " <> tshow i
   asm (Unary op e) = asm e >> asm op
   asm (Binary Com l r) = asm l >> asm r
   asm (Binary And l r) = do
@@ -238,7 +247,7 @@ asmOperands l r = case (unaryAsm "rax" l, unaryAsm "rcx" r) of
 
   where
     unaryAsm :: Text -> Expression id -> Maybe (Emitter ())
-    unaryAsm reg (Literal (C.Integer i)) = Just $ do
+    unaryAsm reg (Literal (Integer i)) = Just $ do
       emit $ "mov " <> reg <> ", " <> tshow i
 
     unaryAsm reg (Unary Neg e) = do

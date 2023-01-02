@@ -14,6 +14,7 @@ import Expr hiding (Expression)
 import qualified Expr
 import qualified IR
 import Util
+import Types (Type(..), Literal(..))
 
 type Expression = Expr.Expression Identifier
 
@@ -30,7 +31,7 @@ data Statement
   = Block [Statement]
   | Break
   | Continue
-  | Declaration Identifier (Maybe Expression)
+  | Declaration Type Identifier (Maybe Expression)
   | DoWhile Statement Expression
   | Expression Expression
   | For Statement Expression Statement Statement
@@ -49,8 +50,8 @@ irStatement Continue = pure [IR.Continue]
 irStatement Inert = pure []
 irStatement (Return e) = pure . IR.Return <$> traverse IR.lookup e
 
-irStatement (Declaration name Nothing) = IR.declareLocal name >> pure []
-irStatement (Declaration name (Just value)) = do
+irStatement (Declaration typ name Nothing) = IR.declareLocal name >> pure []
+irStatement (Declaration typ name (Just value)) = do
   IR.declareLocal name
   pure . IR.Expression <$> traverse IR.lookup (Expr.Assignment name value)
 
@@ -76,24 +77,24 @@ irStatement (While condition body) = do
   body' <- irStatement body
   pure [IR.Loop IR.ZeroOrMore condition' body' []]
 
-irType :: Identifier -> IR.Builder IR.Type
-irType "int" = pure IR.Int
+irType :: Type -> IR.Builder Type
+irType Int = pure Int
 irType t = throwError $ "unknown type: " <> tshow t
 
-irParameter :: Parameter Identifier Identifier -> IR.Builder (Parameter IR.Type Identifier)
+irParameter :: Parameter Type Identifier -> IR.Builder (Parameter Type Identifier)
 irParameter param = do
   typ <- irType $ paramType param
   pure $ Parameter { paramName = paramName param, paramType = typ }
 
-irValue :: Expression -> IR.Builder IR.Value
-irValue (Literal (Integer i)) = pure $ IR.Int64 $ fromInteger i
+irValue :: Expression -> IR.Builder Literal
+irValue (Literal (Integer i)) = pure $ Integer i
 irValue e = throwError $ "cannot compute at compile time: " <> tshow e
 
 irTopLevel :: TopLevel -> IR.Builder ()
 irTopLevel (FunctionDeclaration returnType name params) = do
   returnType' <- irType returnType
   paramTypes <- traverse (irType . Expr.paramType) params
-  let typ = IR.Function returnType' paramTypes
+  let typ = Function returnType' paramTypes
   IR.declareGlobal name typ
 
 irTopLevel (FunctionDefinition returnType name params body) = do

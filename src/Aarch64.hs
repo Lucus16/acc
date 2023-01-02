@@ -17,6 +17,7 @@ import Expr (Expression(..), Unary(..))
 import qualified IR
 import Util (Error)
 import Elf qualified
+import Types (Literal(..))
 
 data Register
   = X0 | X1 | X2 | X3 | X4 | X5 | X6 | X7
@@ -84,7 +85,7 @@ instance Aarch64 IR.Statement where
   asm _ = error "unimplemented"
 
 instance Aarch64 IR.Expression where
-  asm (Literal (C.Integer i))
+  asm (Literal (Integer i))
     | i < 0x10000 = emit $ fromIntegral $ 0xd2800000 .|. (i `shiftL` 5)
     | otherwise   = error "unimplemented"
 
@@ -117,8 +118,8 @@ compile file = do
 --  (Just lasm, _) -> asm r >> emit "mov rcx, rax" >> lasm
 --  (Nothing, Nothing) -> push r >> asm l >> emit "pop rcx"
 
-literalAsm :: Register -> C.Literal -> Emitter ()
-literalAsm reg (C.Integer value) = go False 0
+literalAsm :: Register -> Literal -> Emitter ()
+literalAsm reg (Integer value) = go False 0
   where
     partValue :: Int -> Word32
     partValue part = fromInteger $ shiftR value (16 * part) .&. 0xffff

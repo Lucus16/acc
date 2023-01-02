@@ -38,9 +38,10 @@ instance Ord Symbol where
   compare Symbol{ symbolId = x } Symbol{ symbolId = y } = compare x y
 
 data Type
-  = Int8 | Int16 | Int32 | Int64
-  | Word8 | Word16 | Word32 | Word64
-  deriving (Show)
+  = Int | Int8 | Int16 | Int32 | Int64
+  | Word | Word8 | Word16 | Word32 | Word64
+  | Function Type [Type]
+  deriving (Eq, Show)
 
 data Typed a = Typed Type a
 
@@ -50,7 +51,7 @@ getType (Typed t _) = t
 unTyped :: Typed a -> a
 unTyped (Typed _ x) = x
 
-data Literal = Integer Integer
+data Literal = Integer Integer deriving (Show)
 
 -- ### Label resolution
 

@@ -23,13 +23,13 @@ import Util (tshow)
 --  | LocalLabel Symbol
 --  | SubExpression Symbol
 --  | GeneratedIntermediate Id
---  | Function Symbol
+--  | FunctionRef Symbol
 --  | Literal Literal
 
 data RegisterAssignedReference reg
   = Global Symbol
   | LocalLabel Symbol
-  | Function Symbol
+  | FunctionRef Symbol
   | Constant Symbol
   | Literal Integer
   | Register reg
@@ -47,12 +47,12 @@ writeReference
   :: Typed (RegisterAssignedReference reg)
   -> Resolver ()
 writeReference (Typed typ reference) = case reference of
-  Literal val    -> toType typ val
-  Global ref     -> getOffsetTo ref >>= toType typ
-  LocalLabel ref -> getOffsetTo ref >>= toType typ
-  Function ref   -> getOffsetTo ref >>= toType typ
-  Constant ref   -> getOffsetTo ref >>= toType typ
-  _              -> lift $ throwError "absolute reference not supported"
+  Literal val     -> toType typ val
+  Global ref      -> getOffsetTo ref >>= toType typ
+  LocalLabel ref  -> getOffsetTo ref >>= toType typ
+  FunctionRef ref -> getOffsetTo ref >>= toType typ
+  Constant ref    -> getOffsetTo ref >>= toType typ
+  _               -> lift $ throwError "absolute reference not supported"
 
 data RegisterAssignedFunction reg = RegisterAssignedFunction
   [Conditional (Typed (RegisterAssignedReference reg))]
@@ -125,6 +125,7 @@ toType typ val = case typ of
   Int16  -> toTypeWith Binary.int16
   Int32  -> toTypeWith Binary.int32
   Int64  -> toTypeWith Binary.int64
+  _      -> error $ "ambiguous type not resolved: " <> show typ
   where
     err = "value " <> tshow val <> " cannot be represented as " <> tshow typ
 

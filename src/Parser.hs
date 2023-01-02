@@ -6,7 +6,7 @@ import Control.Applicative (optional, (<|>))
 import Data.Char (isAlpha, isDigit, isSpace)
 import Data.Foldable (asum)
 import Data.Function ((&))
-import Data.Functor (void)
+import Data.Functor (void, ($>))
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -17,6 +17,7 @@ import Text.Megaparsec
 import Text.Megaparsec.Char.Lexer qualified as L (decimal, lexeme, symbol)
 
 import C
+import Types (Literal(..), Type(..))
 
 type Parser = Parsec Void Text
 
@@ -155,7 +156,7 @@ returnStatement :: Parser Statement
 returnStatement = fmap Return $ keyword "return" *> expression <* symbol ";"
 
 declaration :: Parser Statement
-declaration = Declaration <$> (keyword "int" *> identifier) <*> optional (symbol "=" *> expression) <* symbol ";"
+declaration = Declaration <$> type_ <*> identifier <*> optional (symbol "=" *> expression) <* symbol ";"
 
 exprStatement :: Parser Statement
 exprStatement = Expression <$> expression <* symbol ";"
@@ -207,7 +208,8 @@ block :: Parser Statement
 block = fmap Block $ braced $ many statementOrDeclaration
 
 type_ :: Parser Type
-type_ = keyword "int"
+type_ = keyword "int" $> Int
+    <|> keyword "unsigned" <> keyword "int" $> Word
 
 parameter :: Parser (Parameter Type Identifier)
 parameter = Parameter <$> type_ <*> identifier

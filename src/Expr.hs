@@ -3,8 +3,9 @@ module Expr where
 
 import Data.Text (Text)
 
+import Types (Literal)
+
 type Identifier = Text
-type Type = Identifier
 
 data Parameter typ id = Parameter
   { paramType :: typ
@@ -45,8 +46,3 @@ data Expression id
   | Call (Expression id) [Expression id]
   | Ternary (Expression id) (Expression id) (Expression id)
   deriving (Foldable, Functor, Show, Traversable)
-
-data Literal
-  = Integer Integer
-  deriving (Show)
-
