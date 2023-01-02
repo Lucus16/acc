@@ -1,6 +1,8 @@
 /bin/
+/c-testsuite/
 /dist-newstyle/
 /test/*
 !/test/*.c
+/write_a_c_compiler/
 result*
 shell
