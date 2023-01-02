@@ -1,14 +1,16 @@
-{-# LANGUAGE NoFieldSelectors #-}
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE NoFieldSelectors #-}
 
 module Types where
 
 import Control.Monad.Reader (ReaderT)
 import Control.Monad.Writer (WriterT)
+import Data.Int (Int64)
 import Data.Map (Map)
 import Data.Text (Text)
 import Data.Word (Word64)
 import Text.Megaparsec.Pos (SourcePos)
+
 import Data.Binary.Writer qualified as Binary
 
 -- 1. Parse to AST :: Text -> AST Text
@@ -17,8 +19,13 @@ import Data.Binary.Writer qualified as Binary
 -- 4. Linearize :: Map Symbol (Definition Symbol) -> Map Symbol [Conditional Symbol]
 -- 5. Assign registers :: Map Symbol [Conditional Symbol] -> Map Symbol [Conditonal Symbol]
 -- 6. Compute labels :: Map Symbol [Conditional Symbol] -> ByteString
+--    This takes definitions of functions, globals and constants and the mapping
+--    of symbols to offsets and produces binary blobs representing the
+--    definitions and a mapping of symbols to offsets
 
+type Address = Word64
 type Size = Word64
+type Offset = Int64
 
 newtype Id = Id Int deriving (Eq, Ord)
 
@@ -96,8 +103,7 @@ data Condition id
   deriving (Foldable, Functor)
 
 data Conditional id
-  = Always (Operation id)
-  | When (Condition id) (Operation id)
+  = When [Condition id] (Operation id)
   | DefineLabel Id
 
 data Operation id

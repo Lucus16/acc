@@ -1,10 +1,8 @@
-{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Arch.Cpu16 where
 
 import Control.Monad.Except (throwError)
-import Control.Monad.Reader (asks)
 import Control.Monad.Trans (lift)
 import Control.Monad.Writer (WriterT, execWriterT, tell)
 import Data.Bits
@@ -31,6 +29,8 @@ instance Arch Cpu16 where
     | R8 | R9 | R10 | R11 | R12 | R13 | R14 | R15
     deriving (Enum)
 
+  generateCode = cpu16
+
 type Emitter = WriterT [Word16] Resolver
 
 always :: Emitter () -> Resolver ()
@@ -38,13 +38,6 @@ always f = execWriterT f >>= traverse_ Binary.word16
 
 conditional :: Emitter () -> Resolver ()
 conditional f = execWriterT f >>= traverse_ (Binary.word16 . (.|. 0x8000))
-
-getOffsetTo :: Symbol -> Resolver Word64
-getOffsetTo Symbol{symbolId, name} = do
-  srcOffset <- Binary.getOffset
-  tgtOffset <- lift (asks (Map.lookup symbolId)) >>=
-    maybe (lift $ throwError $ "position missing for " <> name) pure
-  pure $ tgtOffset - srcOffset
 
 asmOperation :: Operation (Typed (RegisterAssignedReference Reg)) -> Emitter ()
 asmOperation _ = undefined
@@ -95,8 +88,11 @@ asmCondition' condition = case map getType $ toList condition of
 cpu16
   :: Conditional (Typed (RegisterAssignedReference Reg))
   -> Resolver ()
-cpu16 (Always op)    = always (asmOperation op)
-cpu16 (When condition op) = always (asmCondition' condition) >> conditional (asmOperation op)
+cpu16 (When [] op) = always (asmOperation op)
+cpu16 (When (condition : conditions) op) = do
+  always (asmCondition' condition)
+  traverse_ (conditional . asmCondition') conditions
+  conditional (asmOperation op)
 cpu16 (DefineLabel label) = Binary.getOffset >>= defineLabel label
 
 defineLabel :: Id -> Word64 -> Resolver ()

@@ -86,8 +86,8 @@ data UnresolvedBlobs reg = UnresolvedBlobs
 -- matter.
 resolveOffsets :: UnresolvedBlobs reg -> Resolver (Map Symbol Blob)
 resolveOffsets UnresolvedBlobs{functions, constants, initializedGlobals, zeroedGlobals} = mdo
-  Binary.alignTo 16384 -- The next data goes to a writable page.
   constantBlobs <- Map.traverseWithKey getConstantBlob constants
+  Binary.alignTo 16384 -- The next data goes to a writable page.
   initializedBlobs <- Map.traverseWithKey getInitializedBlob initializedGlobals
   zeroedBlobs <- Map.traverseWithKey getZeroedBlob zeroedGlobals
   let allBlobs :: Map Symbol Blob
